@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AURORALINE — M0 feel prototype</title>
+<style>
+  :root { color-scheme: dark; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #05070f; }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  /* ---- HUD ---- */
+  #hud {
+    position: fixed; inset: 0; pointer-events: none;
+    font-family: "Segoe UI", system-ui, sans-serif; color: #dfe9ff;
+    text-shadow: 0 1px 4px rgba(0,0,0,.6);
+  }
+  #speedWrap {
+    position: absolute; right: 34px; bottom: 30px; text-align: right;
+  }
+  #speed { font-size: 62px; font-weight: 700; line-height: .9; letter-spacing: -2px;
+    font-variant-numeric: tabular-nums; }
+  #speedUnit { font-size: 15px; opacity: .55; letter-spacing: 3px; }
+
+  #charge {
+    position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%);
+    width: 260px; height: 14px; border-radius: 8px;
+    background: rgba(255,255,255,.08);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
+    overflow: hidden; opacity: 0; transition: opacity .15s;
+  }
+  #chargeFill { height: 100%; width: 0%; border-radius: 8px; transition: width .05s linear; }
+  #tierLabel {
+    position: absolute; left: 50%; bottom: 62px; transform: translateX(-50%);
+    font-size: 15px; font-weight: 700; letter-spacing: 4px; opacity: 0;
+    transition: opacity .12s;
+  }
+
+  #help {
+    position: absolute; left: 26px; top: 22px; font-size: 13px; line-height: 1.7;
+    opacity: .82;
+  }
+  #help b { color: #8fe9ff; font-weight: 600; }
+  #title { position:absolute; left: 26px; bottom: 24px; font-size: 12px; letter-spacing: 4px; opacity:.4;}
+  kbd {
+    background: rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.18);
+    border-radius: 4px; padding: 1px 6px; font-family: inherit; font-size: 12px;
+  }
+
+  /* ---- top HUD (lap / times / ghost delta) ---- */
+  #hudTop { position:absolute; top:20px; left:0; right:0; display:flex; justify-content:center;
+    gap:20px; align-items:flex-start; }
+  .panel { background:rgba(8,16,30,.42); border:1px solid rgba(140,220,255,.18);
+    border-radius:12px; padding:10px 16px; backdrop-filter:blur(3px); }
+  #lapBox { font-size:26px; font-weight:800; letter-spacing:1px; align-self:center; }
+  #lapBox .sub { font-size:12px; opacity:.6; margin-left:3px; letter-spacing:2px; }
+  .times { display:flex; flex-direction:column; gap:2px; min-width:150px; }
+  .times .row { display:flex; justify-content:space-between; gap:14px; font-variant-numeric:tabular-nums; align-items:center; }
+  .times .row label { opacity:.55; letter-spacing:2px; font-size:11px; }
+  .times .row span { font-size:15px; font-weight:600; }
+  .times .row.big span { font-size:26px; color:#8fe9ff; }
+  #ghostDelta { align-self:center; font-size:22px; font-weight:700; font-variant-numeric:tabular-nums;
+    min-width:96px; text-align:center; opacity:0; transition:opacity .2s; }
+  #ghostDelta.ahead { color:#86f7d6; text-shadow:0 0 12px rgba(134,247,214,.5); }
+  #ghostDelta.behind { color:#ff9a9a; text-shadow:0 0 12px rgba(255,154,154,.5); }
+  #hint { position:absolute; bottom:22px; left:26px; font-size:12px; opacity:.6; letter-spacing:1px; }
+
+  /* ---- overlay screens ---- */
+  #overlay { position:fixed; inset:0; z-index:10; pointer-events:none; }
+  .screen { pointer-events:auto; position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:18px; color:#eaf3ff;
+    font-family:"Segoe UI",system-ui,sans-serif;
+    background:radial-gradient(120% 120% at 50% 0%, rgba(20,42,72,.5), rgba(4,7,15,.84));
+    backdrop-filter:blur(6px); }
+  .screen.hidden { display:none; }
+  .screen h1 { font-size:64px; letter-spacing:12px; font-weight:800; margin-left:12px;
+    background:linear-gradient(90deg,#8fe9ff,#c9a6ff); -webkit-background-clip:text; background-clip:text;
+    color:transparent; filter:drop-shadow(0 0 34px rgba(140,220,255,.35)); }
+  .screen h2 { font-size:38px; letter-spacing:9px; font-weight:700; color:#dff0ff; margin-left:9px; }
+  .tag { letter-spacing:4px; opacity:.7; text-transform:uppercase; font-size:13px; }
+  .btns { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; margin-top:6px; }
+  button { font-family:inherit; font-size:15px; letter-spacing:2px; color:#dff0ff; cursor:pointer;
+    background:rgba(255,255,255,.06); border:1px solid rgba(140,220,255,.35); border-radius:10px;
+    padding:12px 22px; transition:background .15s,border-color .15s,box-shadow .15s; }
+  button:hover { background:rgba(140,220,255,.16); border-color:#8fe9ff; box-shadow:0 0 18px rgba(140,220,255,.28); }
+  button.primary { background:linear-gradient(90deg, rgba(80,200,255,.24), rgba(160,120,255,.24)); border-color:#8fe9ff; }
+  .fine { font-size:12px; opacity:.55; letter-spacing:1px; }
+  .best { font-size:14px; letter-spacing:2px; opacity:.85; min-height:20px; }
+  #cdNum { font-size:150px; font-weight:800; color:#eaffff; filter:drop-shadow(0 0 46px rgba(140,220,255,.6)); }
+  #finishStats { font-size:16px; line-height:2; letter-spacing:1px; }
+  #finishStats .rec { color:#86f7d6; font-weight:700; }
+  #finishStats b { color:#8fe9ff; font-variant-numeric:tabular-nums; }
+  .setRow { display:flex; align-items:center; gap:16px; width:340px; justify-content:space-between;
+    font-size:14px; letter-spacing:1px; }
+  .setRow input[type=range] { flex:1; accent-color:#8fe9ff; }
+  .toggle { padding:6px 16px; }
+  .rebind { display:flex; flex-direction:column; gap:8px; margin-top:4px; }
+  .rebind .rrow { display:flex; justify-content:space-between; gap:16px; width:340px; align-items:center;
+    font-size:13px; letter-spacing:1px; }
+  .rebind button.key { min-width:88px; padding:6px 10px; text-transform:capitalize; }
+  .rebind button.key.active { border-color:#ffd27a; color:#ffd27a; box-shadow:0 0 14px rgba(255,210,122,.4); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<!-- in-race HUD -->
+<div id="hud">
+  <div id="hudTop">
+    <div class="panel" id="lapBox"><span id="lapNum">1</span><span class="sub">/3 LAP</span></div>
+    <div class="panel times">
+      <div class="row big"><label>LAP</label><span id="curTime">0.00</span></div>
+      <div class="row"><label>LAST</label><span id="lastTime">—</span></div>
+      <div class="row"><label>BEST</label><span id="bestTime">—</span></div>
+    </div>
+    <div id="ghostDelta"></div>
+  </div>
+  <div id="tierLabel"></div>
+  <div id="charge"><div id="chargeFill"></div></div>
+  <div id="speedWrap"><div id="speed">0</div><div id="speedUnit">KM / H</div></div>
+  <div id="hint"><kbd id="hK_up">W</kbd> throttle · <kbd id="hK_drift">Space</kbd> drift · <kbd>Esc</kbd> pause · <kbd>R</kbd> restart</div>
+</div>
+
+<!-- overlay screens -->
+<div id="overlay">
+  <section id="menu" class="screen">
+    <h1>AURORALINE</h1>
+    <p class="tag">night-ice time trial · chase your ghost</p>
+    <div class="best" id="menuBest"></div>
+    <div class="btns">
+      <button data-act="start" class="primary">START</button>
+      <button data-act="settings">SETTINGS</button>
+    </div>
+    <p class="fine">A/D steer · W throttle · hold Space to drift, release to boost · ride gold pads</p>
+  </section>
+
+  <section id="countdown" class="screen hidden"><div id="cdNum">3</div></section>
+
+  <section id="pause" class="screen hidden">
+    <h2>PAUSED</h2>
+    <div class="btns">
+      <button data-act="resume" class="primary">RESUME</button>
+      <button data-act="restart">RESTART</button>
+      <button data-act="settings">SETTINGS</button>
+      <button data-act="menu">MAIN MENU</button>
+    </div>
+  </section>
+
+  <section id="finish" class="screen hidden">
+    <h2>RUN COMPLETE</h2>
+    <div id="finishStats"></div>
+    <div class="btns">
+      <button data-act="restart" class="primary">RACE AGAIN</button>
+      <button data-act="menu">MAIN MENU</button>
+    </div>
+  </section>
+
+  <section id="settings" class="screen hidden">
+    <h2>SETTINGS</h2>
+    <div class="setRow"><label>Master volume</label><input type="range" id="setVol" min="0" max="100" value="70"></div>
+    <div class="setRow"><label>Bloom glow</label><button id="setBloom" class="toggle">ON</button></div>
+    <div class="rebind" id="rebind"></div>
+    <p class="fine">click a key, then press the new one</p>
+    <div class="btns"><button data-act="back" class="primary">BACK</button></div>
+  </section>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { Reflector } from 'three/addons/objects/Reflector.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+// HDR neon helper: colours >1 survive into the bloom buffer so they glow.
+const neon = (hex, k=1.9) => new THREE.Color(hex).multiplyScalar(k);
+
+// =====================================================================
+//  AURORALINE — M0 feel prototype
+//  Goal: make the ice-drift handling feel good in a near-gray box.
+//  All handling constants live in TUNE and are exposed on window.__aurora
+//  so they can be tweaked live from the console.
+// =====================================================================
+
+const TUNE = {
+  // --- throttle / speed ---
+  accel:        26,    // forward accel (units/s^2)
+  brakeAccel:   40,    // braking decel
+  drag:         0.55,  // passive forward drag (per s)
+  maxSpeed:     58,    // soft top speed (units/s)
+  reverseMax:   14,
+
+  // --- steering ---
+  turnRate:     1.9,   // rad/s at full steer, normal grip
+  driftTurnRate:2.15,  // rad/s while drifting — only a touch above turnRate so the
+                       // car SLIDES (heading leads velocity ~30-45°) instead of spinning
+  driftDirBias: 0.12,  // extra rotation toward the drift dir even at neutral stick (was 0.35 = spin-out)
+  maxSlipAngle: 0.85,  // rad (~49°): clamp how far heading may lead velocity, kills spin-outs
+  steerLerp:    9,     // how fast steer input eases in/out
+  lowSpeedSteerFade: 6,// below this speed, steering authority fades (can't spin in place)
+
+  // --- grip (lateral velocity decay per second) ---
+  gripNormal:   3.4,   // high = tight, kills sideways slide fast
+  gripDrift:    1.5,   // low = slides wide when drifting  <-- THE ICE
+  gripBoost:    4.2,   // extra grip while boosting so boost goes where you point
+  driftDragMul: 0.45,  // less forward drag while drifting so a long slide keeps its speed
+
+  // --- drift / mini-turbo ---
+  driftMinSpeed: 14,   // must be going this fast to charge
+  driftHoldFloor:6,    // drift auto-releases only if speed drops below this (decoupled from min)
+  tierTime:     [0.5, 1.1, 1.8],            // seconds held to reach FROST/GLACIER/AURORA
+  tierImpulse:  [16, 30, 46],               // instant forward velocity added on release
+  tierBoostDur: [0.7, 1.15, 1.7],           // seconds of boosted top speed
+  boostMaxMul:  1.55,  // top speed multiplier during boost
+  boostAccelMul:1.9,
+
+  // --- camera ---
+  camDist:      12.5,
+  camHeight:    5.4,
+  camLerp:      4.5,
+  camLookAhead: 6,
+  fovBase:      64,
+  fovBoost:     72,
+};
+
+const TIER_NAMES  = ['', 'FROST', 'GLACIER', 'AURORA'];
+const TIER_COLORS = [0x7fd4ff, 0x8fe9ff, 0x86f7d6, 0xc9a6ff];
+
+// ---------------------------------------------------------------------
+// Persistent settings + records (localStorage, all guarded)
+// ---------------------------------------------------------------------
+const DEFAULT_KEYS = { throttle:'w', brake:'s', left:'a', right:'d', drift:'space' };
+const settings = { vol:70, bloom:true, keys:{ ...DEFAULT_KEYS } };
+let bestLap = null, bestTotal = null, bestGhost = null;
+try {
+  const s = JSON.parse(localStorage.getItem('auroraline_settings')||'null');
+  if (s){ settings.vol = s.vol ?? 70; settings.bloom = s.bloom ?? true;
+    settings.keys = { ...DEFAULT_KEYS, ...(s.keys||{}) }; }
+} catch(e){}
+try {
+  const b = JSON.parse(localStorage.getItem('auroraline_best')||'null');
+  if (b){ bestLap=b.bestLap??null; bestTotal=b.bestTotal??null; bestGhost=b.ghost||null; }
+} catch(e){}
+const saveSettings = () => { try{ localStorage.setItem('auroraline_settings', JSON.stringify(settings)); }catch(e){} };
+const saveBest     = () => { try{ localStorage.setItem('auroraline_best', JSON.stringify({bestLap,bestTotal,ghost:bestGhost})); }catch(e){} };
+const fmt = t => (t==null ? '—' : t.toFixed(2)+'s');
+
+// ---------------------------------------------------------------------
+// Renderer / scene
+// ---------------------------------------------------------------------
+const app = document.getElementById('app');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.92;   // dark night; aurora is the light source
+app.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x0a1024, 0.0075);
+
+const camera = new THREE.PerspectiveCamera(TUNE.fovBase, innerWidth/innerHeight, 0.1, 2000);
+camera.position.set(0, 8, 16);
+
+// Animated aurora sky: flowing northern-light curtains + stars on a dome.
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false,
+  uniforms: { t: { value: 0 } },
+  vertexShader: `varying vec3 vP; void main(){ vP=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);} `,
+  fragmentShader: `
+    varying vec3 vP; uniform float t;
+    float hash(vec3 p){ p=fract(p*0.3183099+0.1); p*=17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
+    void main(){
+      vec3 dir = normalize(vP);
+      float el = dir.y;                 // -1 down .. 1 up
+      float az = atan(dir.z, dir.x);    // -pi .. pi
+      // base night gradient
+      vec3 col = mix(vec3(0.02,0.03,0.07), vec3(0.03,0.09,0.13), smoothstep(-0.1,0.55,el));
+      col = mix(col, vec3(0.008,0.01,0.025), smoothstep(0.0,-0.5,el));
+      // sparse stars up high
+      if(el>0.05){
+        float s = hash(floor(dir*190.0));
+        col += vec3(smoothstep(0.9955,1.0,s)) * smoothstep(0.05,0.35,el) * 0.9;
+      }
+      // aurora curtains (two drifting bands with vertical striations)
+      float band = 0.0;
+      for(int i=0;i<2;i++){
+        float fi = float(i);
+        float center = 0.34 + 0.14*fi + 0.11*sin(az*(2.0+fi) + t*(0.22+0.08*fi));
+        float width  = 0.17 - 0.05*fi;
+        float q = (el-center)/width;
+        float v = exp(-q*q);
+        float striate = 0.55 + 0.45*sin(az*55.0 + t*0.6 + fi*12.0);
+        band += max(v,0.0) * striate * (1.0-0.35*fi);
+      }
+      vec3 auroraCol = mix(vec3(0.15,1.05,0.55), vec3(0.55,0.25,1.05), 0.5+0.5*sin(az*1.4 + t*0.13));
+      col += auroraCol * max(band,0.0) * 1.05;   // HDR (>1) so it blooms
+      gl_FragColor = vec4(col,1.0);
+    }`
+});
+scene.add(new THREE.Mesh(new THREE.SphereGeometry(900, 48, 24), skyMat));
+
+// lighting
+scene.add(new THREE.HemisphereLight(0x9fd0ff, 0x0a0f1e, 0.9));
+const key = new THREE.DirectionalLight(0xbfe6ff, 0.7);
+key.position.set(30, 40, 10);
+scene.add(key);
+
+// ---------------------------------------------------------------------
+// Ice — planar-reflective black mirror lake (M1)
+// ---------------------------------------------------------------------
+const ICE = 1100;
+const ice = new Reflector(new THREE.PlaneGeometry(ICE, ICE), {
+  textureWidth:  Math.min(1024, Math.floor(innerWidth  * devicePixelRatio)),
+  textureHeight: Math.min(1024, Math.floor(innerHeight * devicePixelRatio)),
+  color: 0x0a1420,          // dark tint so it reads as black ice, not a chrome mirror
+});
+ice.rotateX(-Math.PI/2);
+ice.position.y = 0;
+scene.add(ice);
+// faint frost layer over the mirror so it isn't glass-perfect
+{
+  const g = new THREE.PlaneGeometry(ICE, ICE); g.rotateX(-Math.PI/2);
+  const m = new THREE.MeshStandardMaterial({ color: 0x0b1526, roughness: 0.9, metalness: 0.0,
+    transparent: true, opacity: 0.34 });
+  const overlay = new THREE.Mesh(g, m); overlay.position.y = 0.004; scene.add(overlay);
+}
+
+// ice pillars ringing the lake (parallax + speed legibility, kept off the track)
+const spires = new THREE.Group();
+{
+  const geo = new THREE.ConeGeometry(1.1, 9, 5);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x1b3450, roughness:.6, emissive:0x0a2740, emissiveIntensity:.5 });
+  let seed = 1337;
+  const rnd = () => { seed = (seed*16807) % 2147483647; return seed/2147483647; };
+  for (let i=0;i<90;i++){
+    const m = new THREE.Mesh(geo, mat);
+    const a = rnd()*Math.PI*2, r = 175 + rnd()*320;   // ring OUTSIDE the ~135-radius track
+    m.position.set(Math.cos(a)*r, 4.5, Math.sin(a)*r);
+    m.scale.setScalar(0.7 + rnd()*2.2);
+    spires.add(m);
+  }
+}
+scene.add(spires);
+
+// ---------------------------------------------------------------------
+// TRACK — hand-crafted signature lake loop (M2)
+//   closed spline · glowing neon lane edges · start/finish gate · boost pads
+// ---------------------------------------------------------------------
+let spawn = { x:0, z:0, yaw:0 };
+const boostPads = [];
+const HALF_W = 9.5;                       // half track width (wide, for committed slides)
+const curve = new THREE.CatmullRomCurve3([
+  [0,132],[96,98],[137,14],[95,-80],[8,-120],[-86,-98],[-140,-10],[-100,88],[-32,122]
+].map(p => new THREE.Vector3(p[0], 0, p[1])), true, 'catmullrom', 0.5);
+
+{
+  const NS = 520;
+  const pts = curve.getSpacedPoints(NS);   // NS+1 points, evenly spaced, closed
+  const left = [], right = [], ribV = [], ribI = [];
+  for (let i=0;i<=NS;i++){
+    const p = pts[i], p2 = pts[(i+1)%(NS+1)];
+    const tx=p2.x-p.x, tz=p2.z-p.z, tl=Math.hypot(tx,tz)||1;
+    const nx=-tz/tl, nz=tx/tl;             // left-perpendicular
+    left.push (new THREE.Vector3(p.x+nx*HALF_W, 0.05, p.z+nz*HALF_W));
+    right.push(new THREE.Vector3(p.x-nx*HALF_W, 0.05, p.z-nz*HALF_W));
+    ribV.push(p.x+nx*HALF_W, 0.03, p.z+nz*HALF_W,  p.x-nx*HALF_W, 0.03, p.z-nz*HALF_W);
+  }
+  for (let i=0;i<NS;i++){ const a=i*2; ribI.push(a,a+1,a+2, a+1,a+3,a+2); }
+  const ribGeo = new THREE.BufferGeometry();
+  ribGeo.setAttribute('position', new THREE.Float32BufferAttribute(ribV,3));
+  ribGeo.setIndex(ribI); ribGeo.computeVertexNormals();
+  scene.add(new THREE.Mesh(ribGeo, new THREE.MeshStandardMaterial({
+    color:0x15263f, roughness:0.22, metalness:0.5, emissive:0x0b1c34, emissiveIntensity:0.6,
+    side:THREE.DoubleSide })));
+
+  // glowing neon lane edges (HDR → bloom)
+  const edgeTube = (arr, hex) => {
+    const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(arr, true), NS, 0.55, 6, true);
+    const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: neon(hex, 2.0) }));
+    mesh.position.y = 0.15; scene.add(mesh);
+  };
+  edgeTube(left,  0x39c6ff);
+  edgeTube(right, 0xc9a6ff);
+
+  // start / finish
+  const sp = pts[0], sp2 = pts[1];
+  const stx=sp2.x-sp.x, stz=sp2.z-sp.z, stl=Math.hypot(stx,stz)||1;
+  const snx=-stz/stl, snz=stz? stx/stl : 1;   // across-track normal
+  spawn = { x:sp.x, z:sp.z, yaw:Math.atan2(stx,stz) };
+  // finish stripe on the ice
+  const sl = new THREE.Mesh(
+    (()=>{const g=new THREE.PlaneGeometry(HALF_W*2, 3.4); g.rotateX(-Math.PI/2); return g;})(),
+    new THREE.MeshBasicMaterial({ color: neon(0xffffff, 1.4), transparent:true, opacity:0.5 }));
+  sl.position.set(sp.x, 0.06, sp.z); sl.rotation.y = spawn.yaw; scene.add(sl);
+  // gate posts + bar
+  const gm = new THREE.MeshBasicMaterial({ color: neon(0x8fe9ff, 1.8) });
+  for (const s of [1,-1]){
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.45,0.45,7.5,10), gm);
+    post.position.set(sp.x + snx*HALF_W*s, 3.75, sp.z + snz*HALF_W*s); scene.add(post);
+  }
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(HALF_W*2, 0.5, 0.5), gm);
+  bar.position.set(sp.x, 7.3, sp.z); bar.rotation.y = spawn.yaw; scene.add(bar);
+
+  // boost pads on the long sweepers
+  [0.15, 0.42, 0.68, 0.88].forEach(u => {
+    const p = curve.getPointAt(u), tan = curve.getTangentAt(u);
+    const yaw = Math.atan2(tan.x, tan.z);
+    const g = new THREE.PlaneGeometry(HALF_W*1.5, 11); g.rotateX(-Math.PI/2);
+    const mat = new THREE.MeshBasicMaterial({ color: neon(0xffcf7a, 1.6),
+      transparent:true, opacity:0.55, blending:THREE.AdditiveBlending, depthWrite:false });
+    const pad = new THREE.Mesh(g, mat);
+    pad.position.set(p.x, 0.07, p.z); pad.rotation.y = yaw; scene.add(pad);
+    boostPads.push({ x:p.x, z:p.z, mat, cool:0 });
+  });
+}
+
+// Boost-pad interaction: a one-shot kick with a short cooldown per pad.
+function checkBoostPads(dt){
+  const now = performance.now()*0.005;
+  for (const pad of boostPads){
+    pad.mat.opacity = 0.4 + 0.22*Math.sin(now + pad.x);
+    pad.cool -= dt;
+    const d = Math.hypot(S.x-pad.x, S.z-pad.z);
+    if (d < 6.5 && pad.cool <= 0){
+      S.boost = Math.max(S.boost, 1.0);
+      const fx=Math.sin(S.yaw), fz=Math.cos(S.yaw);
+      S.vx += fx*22; S.vz += fz*22;
+      pad.cool = 1.5;
+      Audio.boost();
+    }
+  }
+}
+
+// ---------------------------------------------------------------------
+// Car (simple gray-box body + glowing underlights)
+// ---------------------------------------------------------------------
+const car = new THREE.Group();
+{
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(1.7, 0.55, 3.4),
+    new THREE.MeshStandardMaterial({ color: 0x1a2740, roughness:.4, metalness:.6 })
+  );
+  body.position.y = 0.55;
+  const cabin = new THREE.Mesh(
+    new THREE.BoxGeometry(1.35, 0.5, 1.6),
+    new THREE.MeshStandardMaterial({ color: 0x0e1626, roughness:.2, metalness:.3, emissive:0x1a3a5a, emissiveIntensity:.5 })
+  );
+  cabin.position.set(0, 0.95, -0.15);
+  const nose = new THREE.Mesh(
+    new THREE.BoxGeometry(1.55, 0.3, 0.9),
+    new THREE.MeshStandardMaterial({ color: 0x22344f, roughness:.4, metalness:.6 })
+  );
+  nose.position.set(0, 0.5, 1.5);
+  // underglow
+  const glow = new THREE.Mesh(
+    new THREE.PlaneGeometry(2.2, 4.0),
+    new THREE.MeshBasicMaterial({ color: 0x39c6ff, transparent:true, opacity:.35, blending:THREE.AdditiveBlending })
+  );
+  glow.rotation.x = -Math.PI/2; glow.position.y = 0.06;
+  car.add(body, cabin, nose, glow);
+  car.userData.glow = glow;
+}
+scene.add(car);
+
+// ---------------------------------------------------------------------
+// Light trail — a fading ribbon of recent positions behind the car (M1)
+// ---------------------------------------------------------------------
+const TRAILN = 50;
+const trailHist = [];
+const trailGeo = new THREE.BufferGeometry();
+const trailPos = new Float32Array(TRAILN*2*3);
+const trailCol = new Float32Array(TRAILN*2*3);
+trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos,3));
+trailGeo.setAttribute('color', new THREE.BufferAttribute(trailCol,3));
+{
+  const idx=[]; for(let i=0;i<TRAILN-1;i++){ const a=i*2; idx.push(a,a+1,a+2, a+1,a+3,a+2); }
+  trailGeo.setIndex(idx);
+}
+scene.add(new THREE.Mesh(trailGeo, new THREE.MeshBasicMaterial({
+  vertexColors:true, transparent:true, opacity:0.85,
+  blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide })));
+
+function updateTrail(){
+  trailHist.unshift({ x:S.x, z:S.z });
+  if (trailHist.length > TRAILN) trailHist.pop();
+  const speed = Math.hypot(S.vx, S.vz);
+  const col = new THREE.Color(S.boost>0 ? 0xffcf7a : (S.drifting ? TIER_COLORS[Math.max(1,S.tier)] : 0x39c6ff))
+              .multiplyScalar(1.7);
+  for (let i=0;i<TRAILN;i++){
+    const h  = trailHist[Math.min(i, trailHist.length-1)] || {x:S.x,z:S.z};
+    const hn = trailHist[Math.min(i+1, trailHist.length-1)] || h;
+    let tx=hn.x-h.x, tz=hn.z-h.z; const tl=Math.hypot(tx,tz)||1; tx/=tl; tz/=tl;
+    const nx=-tz, nz=tx;
+    const fade = 1 - i/TRAILN;
+    const w = (0.35 + 0.9*Math.min(1, speed/40)) * fade;   // wider when fast
+    trailPos[i*6]  =h.x+nx*w; trailPos[i*6+1]=0.13; trailPos[i*6+2]=h.z+nz*w;
+    trailPos[i*6+3]=h.x-nx*w; trailPos[i*6+4]=0.13; trailPos[i*6+5]=h.z-nz*w;
+    for (const o of [0,3]){ trailCol[i*6+o]=col.r*fade; trailCol[i*6+o+1]=col.g*fade; trailCol[i*6+o+2]=col.b*fade; }
+  }
+  trailGeo.attributes.position.needsUpdate = true;
+  trailGeo.attributes.color.needsUpdate = true;
+}
+
+// ---------------------------------------------------------------------
+// Frost-spray particle pool (color reflects charge tier)
+// ---------------------------------------------------------------------
+const MAXP = 260;
+const pGeo = new THREE.BufferGeometry();
+const pPos = new Float32Array(MAXP*3);
+const pCol = new Float32Array(MAXP*3);
+pGeo.setAttribute('position', new THREE.BufferAttribute(pPos,3));
+pGeo.setAttribute('color', new THREE.BufferAttribute(pCol,3));
+const pMat = new THREE.PointsMaterial({ size: 0.5, vertexColors:true, transparent:true, opacity:.9,
+  blending:THREE.AdditiveBlending, depthWrite:false });
+const points = new THREE.Points(pGeo, pMat);
+scene.add(points);
+const parts = Array.from({length:MAXP}, () => ({ life:0, x:0,y:0,z:0, vx:0,vy:0,vz:0, r:1,g:1,b:1 }));
+let pHead = 0;
+function spawnSpray(x,z,dirx,dirz, colorHex, n){
+  const c = new THREE.Color(colorHex);
+  for(let i=0;i<n;i++){
+    const p = parts[pHead]; pHead=(pHead+1)%MAXP;
+    p.life = 0.4 + Math.random()*0.4;
+    p.x = x + (Math.random()-.5)*1.2;
+    p.y = 0.2 + Math.random()*0.3;
+    p.z = z + (Math.random()-.5)*1.2;
+    const spread = 2.5;
+    p.vx = -dirx*3 + (Math.random()-.5)*spread;
+    p.vy = 1.5 + Math.random()*2.5;
+    p.vz = -dirz*3 + (Math.random()-.5)*spread;
+    p.r=c.r; p.g=c.g; p.b=c.b;
+  }
+}
+
+// ---------------------------------------------------------------------
+// Car physics state (top-down: x,z plane; yaw around Y)
+// ---------------------------------------------------------------------
+const S = {
+  x:0, z:0, yaw:0,
+  vx:0, vz:0,          // world velocity
+  steer:0,             // eased steer input -1..1
+  drifting:false, driftDir:0,
+  charge:0, tier:0,
+  boost:0,             // boost timer remaining
+};
+function reset(){
+  Object.assign(S,{ x:spawn.x, z:spawn.z, yaw:spawn.yaw,
+    vx:0,vz:0,steer:0,drifting:false,driftDir:0,charge:0,tier:0,boost:0 });
+  if (trailHist) trailHist.length = 0;
+}
+
+// ---------------------------------------------------------------------
+// Input
+// ---------------------------------------------------------------------
+const keys = {};
+let rebinding = null;   // action name currently capturing a new key
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (rebinding){ captureRebind(k); e.preventDefault(); return; }
+  keys[k]=true;
+  if (k===' ') { keys['space']=true; e.preventDefault(); }
+  // global controls, dispatched by game state
+  if (k==='enter'){ if(gameState==='menu') act('start'); else if(gameState==='finished') act('restart'); }
+  else if (k==='escape'){ if(gameState==='racing') act('pause'); else if(gameState==='paused') act('resume'); else if(gameState==='settings') act('back'); }
+  else if (k==='p'){ if(gameState==='racing') act('pause'); else if(gameState==='paused') act('resume'); }
+  else if (k==='r'){ if(gameState==='racing'||gameState==='paused'||gameState==='finished') act('restart'); }
+});
+addEventListener('keyup', e => {
+  const k = e.key.toLowerCase();
+  keys[k]=false;
+  if (k===' ') keys['space']=false;
+});
+
+// ---------------------------------------------------------------------
+// UI refs
+// ---------------------------------------------------------------------
+const elSpeed = document.getElementById('speed');
+const elCharge = document.getElementById('charge');
+const elChargeFill = document.getElementById('chargeFill');
+const elTier = document.getElementById('tierLabel');
+
+// ---------------------------------------------------------------------
+// Sim step
+// ---------------------------------------------------------------------
+function step(dt){
+  const K = settings.keys;
+  const up    = keys[K.throttle]||keys['arrowup'];
+  const down  = keys[K.brake]   ||keys['arrowdown'];
+  const left  = keys[K.left]    ||keys['arrowleft'];
+  const right = keys[K.right]   ||keys['arrowright'];
+  const wantDrift = keys[K.drift];
+
+  // heading basis (BEFORE yaw update — key to the slide feel)
+  const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw);     // forward
+  const rx = Math.cos(S.yaw), rz = -Math.sin(S.yaw);    // right
+
+  // decompose velocity into forward / lateral
+  let vF = S.vx*fx + S.vz*fz;
+  let vL = S.vx*rx + S.vz*rz;
+  const speed = Math.hypot(S.vx, S.vz);
+
+  // --- throttle / brake ---
+  const boosting = S.boost > 0;
+  const accel = TUNE.accel * (boosting ? TUNE.boostAccelMul : 1);
+  if (up)   vF += accel*dt;
+  if (down) vF -= TUNE.brakeAccel*dt;
+  const dragNow = TUNE.drag * (S.drifting ? TUNE.driftDragMul : 1);
+  vF -= vF * dragNow * dt;
+  const maxF = TUNE.maxSpeed * (boosting ? TUNE.boostMaxMul : 1);
+  vF = Math.max(-TUNE.reverseMax, Math.min(maxF, vF));
+
+  // --- steering input easing ---
+  const steerTarget = (left?1:0) - (right?1:0);
+  S.steer += (steerTarget - S.steer) * Math.min(1, TUNE.steerLerp*dt);
+
+  // --- drift engage: hold Space while turning & fast enough ---
+  const canDrift = speed > TUNE.driftMinSpeed;
+  if (wantDrift && canDrift && Math.abs(S.steer) > 0.15){
+    if (!S.drifting){ S.drifting = true; S.driftDir = Math.sign(S.steer); }
+  }
+  // hold the drift as long as space is down and still moving enough.
+  // release adds its boost impulse into vF so the recompose below preserves it.
+  if (S.drifting && (!wantDrift || speed < TUNE.driftHoldFloor)){
+    vF = releaseDrift(vF);
+  }
+
+  // --- steering authority ---
+  const speedFade = Math.min(1, speed / TUNE.lowSpeedSteerFade);
+  const turnRate = S.drifting ? TUNE.driftTurnRate : TUNE.turnRate;
+  // while drifting the car keeps rotating toward the drift direction even past neutral stick
+  let steerUsed = S.steer;
+  if (S.drifting) steerUsed = THREE.MathUtils.clamp(S.steer + S.driftDir*TUNE.driftDirBias, -1, 1);
+  let yawDelta = steerUsed * turnRate * speedFade * dt * (vF < 0 ? -1 : 1);
+
+  // slip-angle clamp: don't let heading rotate more than maxSlipAngle ahead of
+  // the direction we're actually travelling — this is what stops spin-outs while
+  // still allowing a wide, committed slide.
+  if (speed > 1){
+    const velAng = Math.atan2(S.vx, S.vz);
+    let slip = S.yaw + yawDelta - velAng;
+    slip = Math.atan2(Math.sin(slip), Math.cos(slip)); // wrap to [-pi,pi]
+    if (slip >  TUNE.maxSlipAngle) yawDelta = (velAng + TUNE.maxSlipAngle) - S.yaw;
+    if (slip < -TUNE.maxSlipAngle) yawDelta = (velAng - TUNE.maxSlipAngle) - S.yaw;
+  }
+  S.yaw += yawDelta;
+
+  // --- lateral grip (THE ICE) ---
+  let grip = S.drifting ? TUNE.gripDrift : TUNE.gripNormal;
+  if (boosting) grip = Math.max(grip, TUNE.gripBoost);
+  vL -= vL * grip * dt;
+
+  // --- charge accumulation ---
+  if (S.drifting){
+    S.charge += dt;
+    let t=0;
+    if (S.charge > TUNE.tierTime[2]) t=3;
+    else if (S.charge > TUNE.tierTime[1]) t=2;
+    else if (S.charge > TUNE.tierTime[0]) t=1;
+    S.tier = t;
+    // spray colored by tier while drifting
+    if (Math.random() < 0.9){
+      spawnSpray(S.x - fx*1.6, S.z - fz*1.6, fx, fz, TIER_COLORS[S.tier], S.tier>0?3:1);
+    }
+  }
+
+  // --- recompose velocity with OLD basis (momentum keeps old heading) ---
+  S.vx = fx*vF + rx*vL;
+  S.vz = fz*vF + rz*vL;
+
+  // integrate
+  S.x += S.vx*dt;
+  S.z += S.vz*dt;
+
+  // boost timer
+  if (S.boost>0) S.boost -= dt;
+
+  return { speed, vF };
+}
+
+function releaseDrift(vF){
+  const t = S.tier;
+  if (t>0){
+    // add forward speed along the current heading; recompose in step() keeps it.
+    vF += TUNE.tierImpulse[t-1];
+    vF = Math.min(vF, TUNE.maxSpeed * TUNE.boostMaxMul); // cap the overshoot
+    S.boost = Math.max(S.boost, TUNE.tierBoostDur[t-1]);
+    const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw);
+    spawnSpray(S.x - fx*1.5, S.z - fz*1.5, fx, fz, TIER_COLORS[t], 40);
+    flashTier(t);
+    Audio.boost();
+  }
+  S.drifting=false; S.charge=0; S.tier=0;
+  return vF;
+}
+
+// ---------------------------------------------------------------------
+// Visual sync
+// ---------------------------------------------------------------------
+let tierFlash = 0;
+function flashTier(t){ tierFlash = 1; }
+
+function syncVisuals(dt, info){
+  car.position.set(S.x, 0, S.z);
+  car.rotation.y = S.yaw;
+  // bank the car slightly into the slide for readability
+  const vL = S.vx*Math.cos(S.yaw) + S.vz*(-Math.sin(S.yaw));
+  car.rotation.z = THREE.MathUtils.clamp(-vL*0.02, -0.3, 0.3);
+
+  // underglow color/intensity by state
+  const glow = car.userData.glow;
+  const gc = new THREE.Color(S.drifting ? TIER_COLORS[Math.max(1,S.tier)] : (S.boost>0?0xffe08a:0x39c6ff));
+  glow.material.color.lerp(gc, 0.3);
+  glow.material.opacity = 0.3 + (S.drifting?0.25:0) + (S.boost>0?0.3:0);
+
+  // camera: chase behind heading, lerp, look slightly ahead
+  const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw);
+  const desired = new THREE.Vector3(
+    S.x - fx*TUNE.camDist, TUNE.camHeight, S.z - fz*TUNE.camDist
+  );
+  camera.position.lerp(desired, Math.min(1, TUNE.camLerp*dt));
+  const look = new THREE.Vector3(S.x + fx*TUNE.camLookAhead, 1.2, S.z + fz*TUNE.camLookAhead);
+  camera.lookAt(look);
+  const targetFov = S.boost>0 ? TUNE.fovBoost : TUNE.fovBase;
+  camera.fov += (targetFov - camera.fov) * Math.min(1, 6*dt);
+  camera.updateProjectionMatrix();
+
+  // particles
+  for (let i=0;i<MAXP;i++){
+    const p = parts[i];
+    if (p.life>0){
+      p.life -= dt;
+      p.vy -= 6*dt;
+      p.x += p.vx*dt; p.y += p.vy*dt; p.z += p.vz*dt;
+      if (p.y<0){ p.y=0; p.vy*=-0.3; p.vx*=0.6; p.vz*=0.6; }
+      const a = Math.max(0, p.life);
+      pPos[i*3]=p.x; pPos[i*3+1]=p.y; pPos[i*3+2]=p.z;
+      pCol[i*3]=p.r*a; pCol[i*3+1]=p.g*a; pCol[i*3+2]=p.b*a;
+    } else {
+      pPos[i*3+1]=-999;
+    }
+  }
+  pGeo.attributes.position.needsUpdate = true;
+  pGeo.attributes.color.needsUpdate = true;
+
+  // aurora drift + light trail
+  skyMat.uniforms.t.value += dt;
+  updateTrail();
+
+  // HUD
+  const kmh = Math.round(info.speed * 3.0); // arbitrary display scale
+  elSpeed.textContent = kmh;
+  if (S.drifting){
+    elCharge.style.opacity = 1;
+    const frac = Math.min(1, S.charge / TUNE.tierTime[2]);
+    elChargeFill.style.width = (frac*100)+'%';
+    const c = TIER_COLORS[Math.max(1,S.tier)];
+    elChargeFill.style.background = '#'+c.toString(16).padStart(6,'0');
+    elChargeFill.style.boxShadow = `0 0 12px #${c.toString(16).padStart(6,'0')}`;
+  } else {
+    elCharge.style.opacity = 0;
+  }
+  if (tierFlash > 0){
+    tierFlash -= dt*1.5;
+    elTier.style.opacity = Math.max(0, tierFlash);
+    elTier.textContent = TIER_NAMES[S.tier] || elTier.textContent;
+  }
+}
+
+// keep last released tier name visible during flash
+const _origRelease = releaseDrift;
+
+// ---------------------------------------------------------------------
+// Loop
+// One tick() advances the whole sim off a shared wall-clock delta. It is
+// driven by BOTH requestAnimationFrame (smooth when visible) AND a
+// setInterval fallback (keeps physics+render alive when the tab/preview is
+// hidden, where rAF never fires). Because each tick derives dt from the
+// same `last` timestamp, running from both sources never double-advances
+// time — whichever fires just consumes the elapsed real time.
+// ---------------------------------------------------------------------
+// bloom post-processing
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+// (resolution, strength, radius, threshold) — tuned so only bright neon/aurora blooms
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.4, 0.45, 0.88);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// =====================================================================
+//  M3 — race logic (laps · timing · ghost)   +   M4 — shell (menus · audio)
+// =====================================================================
+let gameState = 'menu';
+const LAPS_TOTAL = 3;
+const race = { lap:0, tRace:0, tLap:0, last:0, laps:[], prevU:0, curU:0, passedHalf:false, cdT:0, cdPrev:4, running:false };
+
+// progress samples for nearest-point lap detection
+const SAMP = 720, sampPts = [];
+for (let i=0;i<SAMP;i++) sampPts.push(curve.getPointAt(i/SAMP));
+function nearestU(x,z){
+  let bd=1e9, bu=0;
+  for (let i=0;i<SAMP;i++){ const p=sampPts[i]; const d=(p.x-x)*(p.x-x)+(p.z-z)*(p.z-z); if(d<bd){bd=d;bu=i/SAMP;} }
+  return bu;
+}
+
+// ghost car (translucent replay of your best lap)
+const ghost = { rec:[], recT:0, lastSample:-1 };
+const ghostMesh = new THREE.Group();
+{
+  const gm = new THREE.MeshBasicMaterial({ color: neon(0x9ad8ff, 1.1), transparent:true, opacity:0.30,
+    blending:THREE.AdditiveBlending, depthWrite:false });
+  const b = new THREE.Mesh(new THREE.BoxGeometry(1.7,0.6,3.4), gm); b.position.y=0.6;
+  const c = new THREE.Mesh(new THREE.BoxGeometry(1.35,0.5,1.6), gm); c.position.set(0,1.0,-0.15);
+  ghostMesh.add(b,c); ghostMesh.visible=false; scene.add(ghostMesh);
+}
+
+// ---- DOM refs ----
+const $ = id => document.getElementById(id);
+const overlayEl=$('overlay'), cdNum=$('cdNum'), lapNum=$('lapNum'), curTimeEl=$('curTime'),
+  lastTimeEl=$('lastTime'), bestTimeEl=$('bestTime'), ghostDeltaEl=$('ghostDelta'),
+  menuBest=$('menuBest'), finishStats=$('finishStats'), setVol=$('setVol'), setBloom=$('setBloom'),
+  rebindEl=$('rebind'), hK_up=$('hK_up'), hK_drift=$('hK_drift');
+let returnScreen = 'menu';
+
+const keyLabel = k => k==='space' ? 'Space' : (k.length===1 ? k.toUpperCase() : k);
+function refreshHints(){ hK_up.textContent=keyLabel(settings.keys.throttle); hK_drift.textContent=keyLabel(settings.keys.drift); }
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.add('hidden'));
+  if (id) $(id).classList.remove('hidden');
+  overlayEl.style.pointerEvents = id ? 'auto' : 'none';
+}
+
+// ---- state transitions ----
+function toMenu(){
+  gameState='menu'; race.running=false; ghostMesh.visible=false; reset();
+  menuBest.innerHTML = bestLap
+    ? `BEST LAP <b>${fmt(bestLap)}</b>&nbsp;&nbsp;·&nbsp;&nbsp;BEST RUN <b>${fmt(bestTotal)}</b>`
+    : 'no records yet — set the first one';
+  showScreen('menu');
+}
+function startRace(){
+  Audio.init();
+  race.lap=0; race.tRace=0; race.tLap=0; race.last=0; race.laps.length=0; race.passedHalf=false;
+  ghost.rec.length=0; ghost.recT=0; ghost.lastSample=-1;
+  reset();
+  race.prevU = nearestU(S.x,S.z); race.cdT = 3.0; race.cdPrev = 4;
+  gameState='countdown'; cdNum.textContent='3'; showScreen('countdown');
+}
+function beginRacing(){
+  gameState='racing'; race.running=true; race.tLap=0; race.tRace=0;
+  ghost.rec.length=0; ghost.recT=0; ghost.lastSample=-1;
+  race.prevU = nearestU(S.x,S.z); race.passedHalf=false;
+  showScreen(null);
+}
+function completeLap(){
+  const lt = race.tLap; race.last = lt; race.laps.push(lt);
+  if (bestLap===null || lt<bestLap){ bestLap=lt; bestGhost=ghost.rec.slice(); saveBest(); Audio.chime(true); }
+  else Audio.chime(false);
+  race.lap++;
+  if (race.lap>=LAPS_TOTAL){ finishRace(); return; }
+  race.tLap=0; ghost.rec.length=0; ghost.recT=0; ghost.lastSample=-1;
+}
+function finishRace(){
+  gameState='finished'; race.running=false; ghostMesh.visible=false;
+  const total = race.tRace, best = Math.min(...race.laps);
+  let totalRec=false; if (bestTotal===null || total<bestTotal){ bestTotal=total; totalRec=true; saveBest(); }
+  finishStats.innerHTML =
+    `TOTAL <b>${fmt(total)}</b>${totalRec?' <span class="rec">NEW RECORD</span>':''}<br>` +
+    `BEST LAP <b>${fmt(best)}</b><br>` +
+    `<span style="opacity:.6;font-size:13px">laps ${race.laps.map(l=>l.toFixed(2)).join(' · ')}</span>`;
+  Audio.finish();
+  showScreen('finish');
+}
+function updateRace(dt){
+  race.tRace += dt; race.tLap += dt;
+  const u = nearestU(S.x,S.z); race.curU = u;
+  if (u>0.5 && u<0.95) race.passedHalf = true;
+  if (race.passedHalf && race.prevU>0.8 && u<0.2){ race.passedHalf=false; completeLap(); }
+  race.prevU = u;
+  ghost.recT += dt;
+  if (ghost.recT - ghost.lastSample >= 1/30){
+    ghost.lastSample = ghost.recT;
+    ghost.rec.push({ t:ghost.recT, x:S.x, z:S.z, yaw:S.yaw, u });
+  }
+}
+function updateGhost(){
+  if (gameState!=='racing' || !bestGhost || bestGhost.length<2){ ghostMesh.visible=false; return; }
+  const lt=race.tLap, arr=bestGhost;
+  if (lt > arr[arr.length-1].t){ ghostMesh.visible=false; return; }
+  let i=0; while(i<arr.length-1 && arr[i+1].t<lt) i++;
+  const a=arr[i], b=arr[Math.min(i+1,arr.length-1)];
+  const f=THREE.MathUtils.clamp((lt-a.t)/((b.t-a.t)||1),0,1);
+  ghostMesh.visible=true;
+  ghostMesh.position.set(a.x+(b.x-a.x)*f, 0, a.z+(b.z-a.z)*f);
+  let dy=b.yaw-a.yaw; dy=Math.atan2(Math.sin(dy),Math.cos(dy));
+  ghostMesh.rotation.y = a.yaw+dy*f;
+}
+function ghostDeltaSec(){
+  if (!bestGhost || !bestGhost.length) return 0;
+  let bd=1e9, bt=0;
+  for (const s of bestGhost){ const d=Math.abs(s.u-race.curU); if(d<bd){bd=d;bt=s.t;} }
+  return race.tLap - bt;   // + behind ghost, − ahead
+}
+function updateHUD(){
+  lapNum.textContent = Math.min(race.lap+1, LAPS_TOTAL);
+  curTimeEl.textContent = race.tLap.toFixed(2);
+  lastTimeEl.textContent = race.last ? race.last.toFixed(2) : '—';
+  bestTimeEl.textContent = bestLap ? bestLap.toFixed(2) : '—';
+  if (gameState==='racing' && bestGhost && bestGhost.length){
+    const d = ghostDeltaSec();
+    ghostDeltaEl.style.opacity = 1;
+    ghostDeltaEl.textContent = (d>=0?'+':'−') + Math.abs(d).toFixed(2);
+    ghostDeltaEl.className = d>=0 ? 'behind' : 'ahead';
+  } else ghostDeltaEl.style.opacity = 0;
+}
+function updateState(dt){
+  if (gameState==='countdown'){
+    race.cdT -= dt;
+    const c = Math.ceil(race.cdT);
+    if (c!==race.cdPrev){ race.cdPrev=c; if (c>=1){ cdNum.textContent=c; Audio.beep(440); } }
+    if (race.cdT<=0 && cdNum.textContent!=='GO'){ cdNum.textContent='GO'; Audio.beep(900); }
+    if (race.cdT < -0.7) beginRacing();
+  }
+}
+
+// ---- actions (buttons + keys) ----
+function act(a){
+  if (a==='start' || a==='restart') startRace();
+  else if (a==='pause'){ gameState='paused'; showScreen('pause'); }
+  else if (a==='resume'){ gameState='racing'; showScreen(null); last=performance.now(); }
+  else if (a==='menu') toMenu();
+  else if (a==='settings'){ returnScreen = (gameState==='racing'||gameState==='paused') ? 'pause' : 'menu';
+    gameState='settings'; showScreen('settings'); }
+  else if (a==='back'){ gameState = returnScreen==='pause' ? 'paused' : 'menu'; showScreen(returnScreen); last=performance.now(); }
+}
+document.querySelectorAll('button[data-act]').forEach(btn =>
+  btn.addEventListener('click', ()=>{ Audio.blip(); act(btn.dataset.act); }));
+
+// ---- settings UI ----
+setVol.value = settings.vol;
+setVol.addEventListener('input', ()=>{ settings.vol=+setVol.value; Audio.setVolume(); saveSettings(); });
+function refreshBloomBtn(){ setBloom.textContent = settings.bloom?'ON':'OFF'; bloom.enabled = settings.bloom; }
+setBloom.addEventListener('click', ()=>{ settings.bloom=!settings.bloom; refreshBloomBtn(); saveSettings(); Audio.blip(); });
+const ACTIONS = [['throttle','Throttle'],['brake','Brake'],['left','Steer left'],['right','Steer right'],['drift','Drift']];
+function buildRebind(){
+  rebindEl.innerHTML='';
+  for (const [key,label] of ACTIONS){
+    const row=document.createElement('div'); row.className='rrow';
+    const l=document.createElement('span'); l.textContent=label;
+    const b=document.createElement('button'); b.className='key'; b.textContent=keyLabel(settings.keys[key]);
+    b.addEventListener('click', ()=>{ document.querySelectorAll('.rebind .key').forEach(x=>x.classList.remove('active'));
+      b.classList.add('active'); b.textContent='press…'; rebinding=key; });
+    row.append(l,b); rebindEl.append(row);
+  }
+}
+function captureRebind(k){
+  if (k==='escape'){ rebinding=null; buildRebind(); return; }
+  if (k===' ') k='space';
+  settings.keys[rebinding]=k; rebinding=null; saveSettings(); buildRebind(); refreshHints();
+}
+
+// ---- procedural WebAudio ----
+const Audio = (()=>{
+  let ctx=null, master=null, eng=null, engGain=null, driftGain=null, driftFilt=null, noiseBuf=null;
+  function mkNoise(){ if(!noiseBuf){ noiseBuf=ctx.createBuffer(1, ctx.sampleRate*2, ctx.sampleRate);
+      const d=noiseBuf.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1; }
+    const s=ctx.createBufferSource(); s.buffer=noiseBuf; s.loop=true; return s; }
+  function init(){
+    if (ctx){ if(ctx.state==='suspended') ctx.resume(); return; }
+    try { ctx = new (window.AudioContext||window.webkitAudioContext)(); } catch(e){ return; }
+    master = ctx.createGain(); master.connect(ctx.destination); setVolume();
+    // ambient pad — detuned drones through a slowly sweeping lowpass
+    const pad=ctx.createGain(); pad.gain.value=0.12; pad.connect(master);
+    const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=600; lp.connect(pad);
+    [110, 165, 220].forEach((f,i)=>{ const o=ctx.createOscillator(); o.type=i===2?'sine':'sawtooth';
+      o.frequency.value=f; o.detune.value=(i-1)*7; const g=ctx.createGain(); g.gain.value=i===2?0.5:0.3;
+      o.connect(g); g.connect(lp); o.start(); });
+    const lfo=ctx.createOscillator(); lfo.frequency.value=0.05; const lg=ctx.createGain(); lg.gain.value=200;
+    lfo.connect(lg); lg.connect(lp.frequency); lfo.start();
+    // engine
+    eng=ctx.createOscillator(); eng.type='sawtooth'; eng.frequency.value=60; engGain=ctx.createGain(); engGain.gain.value=0;
+    const ef=ctx.createBiquadFilter(); ef.type='lowpass'; ef.frequency.value=900;
+    eng.connect(ef); ef.connect(engGain); engGain.connect(master); eng.start();
+    // drift sizzle
+    const dn=mkNoise(); driftFilt=ctx.createBiquadFilter(); driftFilt.type='bandpass'; driftFilt.frequency.value=1800; driftFilt.Q.value=0.8;
+    driftGain=ctx.createGain(); driftGain.gain.value=0; dn.connect(driftFilt); driftFilt.connect(driftGain); driftGain.connect(master); dn.start();
+  }
+  function setVolume(){ if(master) master.gain.value=(settings.vol/100)*0.7; }
+  function tick(speed, boosting, drifting, tier){
+    if(!ctx) return; const t=ctx.currentTime;
+    engGain.gain.setTargetAtTime(Math.min(0.16, 0.028+speed*0.0022), t, 0.1);
+    eng.frequency.setTargetAtTime(55 + speed*3 + (boosting?60:0), t, 0.08);
+    driftGain.gain.setTargetAtTime(drifting ? 0.05+tier*0.03 : 0, t, 0.05);
+    if (drifting) driftFilt.frequency.setTargetAtTime(1400+tier*500, t, 0.1);
+  }
+  function beep(f, dur=0.12, vol=0.12){ if(!ctx) return; const o=ctx.createOscillator(); o.type='triangle'; o.frequency.value=f;
+    const g=ctx.createGain(); o.connect(g); g.connect(master); const t=ctx.currentTime;
+    g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(0.001,t+dur); o.start(t); o.stop(t+dur+0.02); }
+  function blip(){ beep(660,0.06,0.05); }
+  function chime(best){ if(!ctx) return; const base=best?880:587;
+    [base, base*1.5, best?base*2:base*1.25].forEach((f,i)=>{ const o=ctx.createOscillator(); o.type='sine'; o.frequency.value=f;
+      const g=ctx.createGain(); const t=ctx.currentTime+i*0.09; g.gain.setValueAtTime(0.0001,t);
+      g.gain.exponentialRampToValueAtTime(0.16,t+0.02); g.gain.exponentialRampToValueAtTime(0.001,t+0.6);
+      o.connect(g); g.connect(master); o.start(t); o.stop(t+0.65); }); }
+  function boost(){ if(!ctx) return; const o=ctx.createOscillator(); o.type='sawtooth'; const g=ctx.createGain(); const t=ctx.currentTime;
+    o.frequency.setValueAtTime(180,t); o.frequency.exponentialRampToValueAtTime(620,t+0.25);
+    g.gain.setValueAtTime(0.13,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.3); o.connect(g); g.connect(master); o.start(t); o.stop(t+0.32); }
+  function finish(){ chime(true); }
+  return { init, setVolume, tick, beep, blip, chime, boost, finish };
+})();
+
+// ---- initialise the shell ----
+buildRebind(); refreshBloomBtn(); refreshHints();
+toMenu();
+
+let last = performance.now();
+let ticking = false;
+function tick(now){
+  if (ticking) return;          // guard re-entrancy if both sources fire together
+  ticking = true;
+  now = now || performance.now();
+  let dt = (now - last)/1000; last = now;
+  if (dt <= 0) { ticking = false; return; }
+  dt = Math.min(dt, 0.05);      // clamp big hitches (also caps hidden-tab slow-mo)
+  updateState(dt);              // countdown ticking
+  let info;
+  if (gameState==='racing'){ info = step(dt); checkBoostPads(dt); updateRace(dt); }
+  else { info = { speed: Math.hypot(S.vx, S.vz), vF:0 }; }
+  updateGhost();
+  syncVisuals(dt, info);
+  updateHUD();
+  Audio.tick(gameState==='racing'?info.speed:0, S.boost>0, S.drifting, S.tier);
+  composer.render();
+  ticking = false;
+}
+function rafLoop(now){ tick(now); requestAnimationFrame(rafLoop); }
+requestAnimationFrame(rafLoop);
+// fallback heartbeat: ~30fps. Runs the FULL tick, not just render, so the
+// simulation never freezes when rAF is suspended (hidden preview panels).
+setInterval(() => { if (document.hidden) tick(); }, 33);
+// avoid a huge dt jump when returning to a foregrounded tab
+addEventListener('visibilitychange', () => { last = performance.now(); });
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+  bloom.setSize(innerWidth, innerHeight);
+});
+
+// ---------------------------------------------------------------------
+// Debug hook — tune live:  __aurora.TUNE.gripDrift = 0.9
+// ---------------------------------------------------------------------
+window.__aurora = { TUNE, S, reset, scene, camera, step, keys, renderer, composer, bloom, skyMat,
+  race, ghost, act, nearestU, curve, startRace, beginRacing, updateRace, updateState,
+  get state(){ return gameState; }, get bestLap(){ return bestLap; }, get bestGhost(){ return bestGhost; }, Audio,
+  // deterministic headless sim for testing: run N fixed-dt steps with a key held
+  sim(setKeys, seconds, dt=1/60){
+    for (const k in this.keys) this.keys[k]=false;
+    Object.assign(this.keys, setKeys);
+    const n = Math.round(seconds/dt); let last;
+    for (let i=0;i<n;i++) last = this.step(dt);
+    const s = this.S;
+    const vL = s.vx*Math.cos(s.yaw) + s.vz*(-Math.sin(s.yaw));
+    return { speed:+Math.hypot(s.vx,s.vz).toFixed(2), yaw:+s.yaw.toFixed(2),
+             drifting:s.drifting, charge:+s.charge.toFixed(2), tier:s.tier,
+             lateralSlide:+vL.toFixed(2), boost:+s.boost.toFixed(2),
+             x:+s.x.toFixed(1), z:+s.z.toFixed(1) };
+  },
+  cap(){ return renderer.domElement.toDataURL('image/jpeg', 0.7); } };
+console.log('%cAURORALINE M0','color:#8fe9ff;font-weight:bold', '— tune via __aurora.TUNE');
+</script>
+</body>
+</html>
