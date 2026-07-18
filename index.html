@@ -101,6 +101,12 @@
   button.primary { background:linear-gradient(90deg, rgba(80,200,255,.24), rgba(160,120,255,.24)); border-color:#8fe9ff; }
   .fine { font-size:12px; opacity:.55; letter-spacing:1px; }
   .best { font-size:14px; letter-spacing:2px; opacity:.85; min-height:20px; }
+  #trackSel { display:flex; align-items:center; gap:22px; margin-top:2px; }
+  #trackSel .tArrow { font-size:20px; padding:8px 18px; border-radius:50%; line-height:1; }
+  #trackSel .tInfo { min-width:260px; text-align:center; }
+  #trackName { font-size:22px; font-weight:700; letter-spacing:5px;
+    background:linear-gradient(90deg,#8fe9ff,#c9a6ff); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .tBlurb { font-size:11px; letter-spacing:2px; opacity:.6; text-transform:uppercase; margin-top:4px; }
   #cdNum { font-size:150px; font-weight:800; color:#eaffff; filter:drop-shadow(0 0 46px rgba(140,220,255,.6)); }
   #finishStats { font-size:16px; line-height:2; letter-spacing:1px; }
   #finishStats .rec { color:#86f7d6; font-weight:700; }
@@ -144,6 +150,11 @@
   <section id="menu" class="screen">
     <h1>AURORALINE</h1>
     <p class="tag">night-ice time trial · chase your ghost</p>
+    <div id="trackSel">
+      <button id="trackPrev" class="tArrow">&#9664;</button>
+      <div class="tInfo"><div id="trackName">AURORA LAKE</div><div id="trackBlurb" class="tBlurb"></div></div>
+      <button id="trackNext" class="tArrow">&#9654;</button>
+    </div>
     <div class="best" id="menuBest"></div>
     <div class="btns">
       <button data-act="start" class="primary">START</button>
@@ -264,6 +275,46 @@ const TIER_NAMES  = ['', 'FROST', 'GLACIER', 'AURORA'];
 const TIER_COLORS = [0x7fd4ff, 0x8fe9ff, 0x86f7d6, 0xc9a6ff];
 
 // ---------------------------------------------------------------------
+// TRACKS — each is a unique spline + aurora palette + environment + ice zones.
+// This is what makes every track feel like its own place.
+// ---------------------------------------------------------------------
+const TRACKS = [
+  {
+    name: 'AURORA LAKE', blurb: 'flowing sweepers · mountain ring',
+    ctrl: [[0,132],[96,98],[137,14],[95,-80],[8,-120],[-86,-98],[-140,-10],[-100,88],[-32,122]],
+    env: 'mountains',
+    zones: [ {a:0.18,b:0.26,grip:0.72,glare:true},{a:0.37,b:0.44,grip:1.35,glare:false},
+             {a:0.55,b:0.63,grip:0.72,glare:true},{a:0.80,b:0.87,grip:1.35,glare:false} ],
+    pal: { auroraA:[0.15,1.05,0.55], auroraB:[0.55,0.25,1.05], tint:0xc9a6ff,
+           fog:0x0a1024, ice:0x0a1420, spire:0x3a5c80, edgeL:0x39c6ff, edgeR:0xc9a6ff, snow:0xeef6ff },
+  },
+  {
+    name: 'EMERALD FJORD', blurb: 'tight & twisty · frozen forest',
+    ctrl: [[0,112],[74,118],[122,66],[82,18],[128,-44],[66,-104],[-12,-82],[-58,-122],[-122,-70],[-92,8],[-120,82],[-48,96]],
+    env: 'forest',
+    zones: [ {a:0.12,b:0.20,grip:1.4,glare:false},{a:0.30,b:0.38,grip:0.68,glare:true},
+             {a:0.50,b:0.57,grip:1.4,glare:false},{a:0.68,b:0.75,grip:0.68,glare:true},
+             {a:0.86,b:0.93,grip:1.4,glare:false} ],
+    pal: { auroraA:[0.10,1.05,0.6], auroraB:[0.15,0.75,0.95], tint:0x7fe9d0,
+           fog:0x06140f, ice:0x08201c, spire:0x2f7a6a, edgeL:0x39ffcf, edgeR:0x8fe9ff, snow:0xeafff8 },
+  },
+  {
+    name: 'EMBER WASTES', blurb: 'long fast lines · iceberg field',
+    ctrl: [[0,152],[112,112],[162,0],[112,-112],[0,-152],[-112,-112],[-162,0],[-112,112]],
+    env: 'icebergs',
+    zones: [ {a:0.22,b:0.32,grip:0.66,glare:true},{a:0.47,b:0.57,grip:0.66,glare:true},
+             {a:0.72,b:0.82,grip:0.66,glare:true},{a:0.90,b:0.97,grip:1.35,glare:false} ],
+    pal: { auroraA:[1.05,0.4,0.2], auroraB:[1.05,0.7,0.25], tint:0xffb27a,
+           fog:0x160a08, ice:0x1c1210, spire:0x7a4a3a, edgeL:0xff7a4f, edgeR:0xffcf7a, snow:0xfff0e2 },
+  },
+];
+let trackIndex = 0;
+try { const ti = JSON.parse(localStorage.getItem('auroraline_track')||'0'); if (Number.isInteger(ti)&&ti>=0&&ti<TRACKS.length) trackIndex=ti; } catch(e){}
+const TK = TRACKS[trackIndex];
+const PAL = TK.pal;
+const c3 = a => new THREE.Color().setRGB(a[0], a[1], a[2]);
+
+// ---------------------------------------------------------------------
 // Persistent settings + records (localStorage, all guarded)
 // ---------------------------------------------------------------------
 const DEFAULT_KEYS = { throttle:'w', brake:'s', left:'a', right:'d', drift:'space' };
@@ -274,12 +325,13 @@ try {
   if (s){ settings.vol = s.vol ?? 70; settings.bloom = s.bloom ?? true;
     settings.keys = { ...DEFAULT_KEYS, ...(s.keys||{}) }; }
 } catch(e){}
+const BEST_KEY = 'auroraline_best_' + trackIndex;
 try {
-  const b = JSON.parse(localStorage.getItem('auroraline_best')||'null');
+  const b = JSON.parse(localStorage.getItem(BEST_KEY)||'null');
   if (b){ bestLap=b.bestLap??null; bestTotal=b.bestTotal??null; bestGhost=b.ghost||null; }
 } catch(e){}
 const saveSettings = () => { try{ localStorage.setItem('auroraline_settings', JSON.stringify(settings)); }catch(e){} };
-const saveBest     = () => { try{ localStorage.setItem('auroraline_best', JSON.stringify({bestLap,bestTotal,ghost:bestGhost})); }catch(e){} };
+const saveBest     = () => { try{ localStorage.setItem(BEST_KEY, JSON.stringify({bestLap,bestTotal,ghost:bestGhost})); }catch(e){} };
 const fmt = t => (t==null ? '—' : t.toFixed(2)+'s');
 
 // ---------------------------------------------------------------------
@@ -294,7 +346,7 @@ renderer.toneMappingExposure = 0.92;   // dark night; aurora is the light source
 app.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x0a1024, 0.0075);
+scene.fog = new THREE.FogExp2(PAL.fog, 0.0075);
 
 const camera = new THREE.PerspectiveCamera(TUNE.fovBase, innerWidth/innerHeight, 0.1, 2000);
 camera.position.set(0, 8, 16);
@@ -303,10 +355,12 @@ camera.position.set(0, 8, 16);
 const skyMat = new THREE.ShaderMaterial({
   side: THREE.BackSide, depthWrite: false,
   uniforms: { t: { value: 0 }, uFlow: { value: 0 }, uSurge: { value: 0 },
-              uTint: { value: new THREE.Color(0xc9a6ff) } },
+              uTint: { value: new THREE.Color(PAL.tint) },
+              uAuroraA: { value: c3(PAL.auroraA) }, uAuroraB: { value: c3(PAL.auroraB) } },
   vertexShader: `varying vec3 vP; void main(){ vP=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);} `,
   fragmentShader: `
     varying vec3 vP; uniform float t; uniform float uFlow; uniform float uSurge; uniform vec3 uTint;
+    uniform vec3 uAuroraA; uniform vec3 uAuroraB;
     float hash(vec3 p){ p=fract(p*0.3183099+0.1); p*=17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
     void main(){
       vec3 dir = normalize(vP);
@@ -319,6 +373,15 @@ const skyMat = new THREE.ShaderMaterial({
       if(el>0.05){
         float s = hash(floor(dir*190.0));
         col += vec3(smoothstep(0.9955,1.0,s)) * smoothstep(0.05,0.35,el) * 0.9;
+        // occasional shooting star: a bright streak that sweeps periodically
+        float period = 7.0;
+        float ph = fract(t/period);
+        float band = floor(t/period);
+        float sy = 0.72 - ph*0.5;                     // falls
+        float sx = -2.6 + ph*5.2 + hash(vec3(band,1.0,3.0))*1.5;   // sweeps across, random lane
+        vec2 sp = vec2(az - sx, el - sy);
+        float streak = smoothstep(0.11,0.0,abs(sp.y)+abs(sp.x)*0.12) * smoothstep(0.0,0.25,ph) * smoothstep(1.0,0.7,ph);
+        col += vec3(0.8,0.95,1.2) * streak * 1.4;
       }
       // aurora curtains — the striations shimmer FASTER and a third curtain fades
       // in as flow rises, so good driving visibly energises the sky.
@@ -335,7 +398,7 @@ const skyMat = new THREE.ShaderMaterial({
         if(i==2) w *= uFlow;            // third curtain only appears in flow
         band += max(v,0.0) * striate * w;
       }
-      vec3 baseA = mix(vec3(0.15,1.05,0.55), vec3(0.55,0.25,1.05), 0.5+0.5*sin(az*1.4 + t*0.13));
+      vec3 baseA = mix(uAuroraA, uAuroraB, 0.5+0.5*sin(az*1.4 + t*0.13));
       vec3 auroraCol = mix(baseA, uTint, uFlow*0.7);            // colour drifts toward tint with flow
       float bright = 1.05 * (1.0 + uFlow*1.05 + uSurge*1.1);    // much brighter with flow + surge pulse
       col += auroraCol * max(band,0.0) * bright;                // HDR (>1) so it blooms
@@ -359,7 +422,7 @@ const ICE = 1100;
 const ice = new Reflector(new THREE.PlaneGeometry(ICE, ICE), {
   textureWidth:  Math.min(1024, Math.floor(innerWidth  * devicePixelRatio)),
   textureHeight: Math.min(1024, Math.floor(innerHeight * devicePixelRatio)),
-  color: 0x0a1420,          // dark tint so it reads as black ice, not a chrome mirror
+  color: PAL.ice,           // themed dark tint so it reads as ice, not a chrome mirror
 });
 ice.rotateX(-Math.PI/2);
 ice.position.y = 0;
@@ -372,19 +435,50 @@ scene.add(ice);
   const overlay = new THREE.Mesh(g, m); overlay.position.y = 0.004; scene.add(overlay);
 }
 
-// ice pillars ringing the lake (parallax + speed legibility, kept off the track)
+// ---------------------------------------------------------------------
+// Themed near-ring environment: ice spires / frozen forest / icebergs.
+// Ringed OUTSIDE the ~135-radius track so it never crowds the racing line.
+// ---------------------------------------------------------------------
 const spires = new THREE.Group();
 {
-  const geo = new THREE.ConeGeometry(1.1, 9, 5);
-  const mat = new THREE.MeshStandardMaterial({ color: 0x3a5c80, roughness:.35, metalness:.15, emissive:0x2f6ea0, emissiveIntensity:.9 });
   let seed = 1337;
   const rnd = () => { seed = (seed*16807) % 2147483647; return seed/2147483647; };
-  for (let i=0;i<90;i++){
-    const m = new THREE.Mesh(geo, mat);
-    const a = rnd()*Math.PI*2, r = 175 + rnd()*320;   // ring OUTSIDE the ~135-radius track
-    m.position.set(Math.cos(a)*r, 4.5, Math.sin(a)*r);
-    m.scale.setScalar(0.7 + rnd()*2.2);
-    spires.add(m);
+  const place = () => { const a=rnd()*Math.PI*2, r=175+rnd()*330; return [Math.cos(a)*r, Math.sin(a)*r]; };
+
+  if (TK.env === 'forest'){
+    // frozen pines — stacked cones, snow-dusted, dark teal silhouettes
+    const trunkMat = new THREE.MeshStandardMaterial({ color:0x1a2a24, roughness:.9 });
+    const pineMat  = new THREE.MeshStandardMaterial({ color:0x1f4a3e, roughness:.7, emissive:0x123a30, emissiveIntensity:.35 });
+    const snowMat  = new THREE.MeshStandardMaterial({ color:0xdfeee8, roughness:.8, emissive:0x2a4a44, emissiveIntensity:.2 });
+    for (let i=0;i<120;i++){
+      const g=new THREE.Group(); const [x,z]=place(); const s=0.8+rnd()*1.9;
+      const trunk=new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.4,2,5), trunkMat); trunk.position.y=1;
+      g.add(trunk);
+      for (let k=0;k<3;k++){
+        const tier=new THREE.Mesh(new THREE.ConeGeometry(2.4-k*0.6, 3, 6), k===0?snowMat:pineMat);
+        tier.position.y = 3 + k*2.1; g.add(tier);
+      }
+      g.position.set(x, 0, z); g.scale.setScalar(s); spires.add(g);
+    }
+  } else if (TK.env === 'icebergs'){
+    // jagged frozen bergs — faceted low-poly chunks, pale blue, warm-lit edges
+    const bergMat = new THREE.MeshStandardMaterial({ color:0x2a5a78, roughness:.35, metalness:.1, emissive:0x1f5a78, emissiveIntensity:.5, flatShading:true });
+    for (let i=0;i<70;i++){
+      const [x,z]=place();
+      const m=new THREE.Mesh(new THREE.IcosahedronGeometry(3+rnd()*6, 0), bergMat);
+      m.position.set(x, -1+rnd()*3, z);
+      m.rotation.set(rnd()*3, rnd()*3, rnd()*3);
+      m.scale.set(1+rnd(), 0.7+rnd()*1.6, 1+rnd());
+      spires.add(m);
+    }
+  } else {
+    // default: icy spires (mountains theme)
+    const geo = new THREE.ConeGeometry(1.1, 9, 5);
+    const mat = new THREE.MeshStandardMaterial({ color:PAL.spire, roughness:.35, metalness:.15, emissive:PAL.spire, emissiveIntensity:.7 });
+    for (let i=0;i<90;i++){
+      const m=new THREE.Mesh(geo, mat); const [x,z]=place();
+      m.position.set(x, 4.5, z); m.scale.setScalar(0.7+rnd()*2.2); spires.add(m);
+    }
   }
 }
 scene.add(spires);
@@ -396,18 +490,11 @@ scene.add(spires);
 let spawn = { x:0, z:0, yaw:0 };
 const boostPads = [];
 const HALF_W = 9.5;                       // half track width (wide, for committed slides)
-const curve = new THREE.CatmullRomCurve3([
-  [0,132],[96,98],[137,14],[95,-80],[8,-120],[-86,-98],[-140,-10],[-100,88],[-32,122]
-].map(p => new THREE.Vector3(p[0], 0, p[1])), true, 'catmullrom', 0.5);
+const curve = new THREE.CatmullRomCurve3(
+  TK.ctrl.map(p => new THREE.Vector3(p[0], 0, p[1])), true, 'catmullrom', 0.5);
 
-// surface-read zones: glare-ice (grip<1, slides wider) vs snow (grip>1, bites).
-// a,b are curve params [0,1]. Reading the surface is part of the driving.
-const surfaceZones = [
-  { a:0.18, b:0.26, grip:0.72, glare:true  },   // slick entry
-  { a:0.37, b:0.44, grip:1.35, glare:false },   // snow through a bend
-  { a:0.55, b:0.63, grip:0.72, glare:true  },   // slick sweeper
-  { a:0.80, b:0.87, grip:1.35, glare:false },   // snow bite
-];
+// surface-read zones from the track theme: glare-ice (grip<1) vs snow (grip>1).
+const surfaceZones = TK.zones;
 function surfaceGripMul(u){
   for (const z of surfaceZones){ if (u>=z.a && u<=z.b) return z.grip; }
   return 1;
@@ -439,8 +526,8 @@ function surfaceGripMul(u){
     const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: neon(hex, 2.0) }));
     mesh.position.y = 0.15; scene.add(mesh);
   };
-  edgeTube(left,  0x39c6ff);
-  edgeTube(right, 0xc9a6ff);
+  edgeTube(left,  PAL.edgeL);
+  edgeTube(right, PAL.edgeR);
 
   // surface-zone patches laid over the track (glare = glossy blue, snow = matte white)
   surfaceZones.forEach(z => {
@@ -560,7 +647,13 @@ const car = new THREE.Group();
       blending:THREE.AdditiveBlending, depthWrite:false }));
   glow.rotation.x = -Math.PI/2; glow.position.y = 0.04;
 
-  car.add(hull, edges, canopy, engine, glow);
+  // headlight — a soft light pool washing the ice ahead (sweeps as you turn)
+  const beam = new THREE.Mesh(new THREE.PlaneGeometry(7, 17),
+    new THREE.MeshBasicMaterial({ map: glowTex, color: 0xbfe0ff, transparent:true, opacity:0.2,
+      blending:THREE.AdditiveBlending, depthWrite:false }));
+  beam.rotation.x = -Math.PI/2; beam.position.set(0, 0.05, 7);
+
+  car.add(hull, edges, canopy, engine, glow, beam);
   car.userData.glow = glow; car.userData.engine = engine;
 }
 scene.add(car);
@@ -675,7 +768,7 @@ const moteVel = new Float32Array(MOTES);
 for (let i=0;i<MOTES;i++){ motePos[i*3]=(Math.random()-.5)*200; motePos[i*3+1]=Math.random()*48; motePos[i*3+2]=(Math.random()-.5)*200; moteVel[i]=3+Math.random()*6; }
 moteGeo.setAttribute('position', new THREE.BufferAttribute(motePos,3));
 const moteMesh = new THREE.Points(moteGeo, new THREE.PointsMaterial({
-  map:glowTex, color:0xeef6ff, size:0.85, transparent:true, opacity:0.72, depthWrite:false, sizeAttenuation:true }));
+  map:glowTex, color:PAL.snow, size:0.85, transparent:true, opacity:0.72, depthWrite:false, sizeAttenuation:true }));
 moteMesh.frustumCulled = false; scene.add(moteMesh);
 
 // rolling ground mist (soft flat haze drifting over the ice)
@@ -748,8 +841,10 @@ function mountainRing(R, minH, maxH, colorHex, seg, seed0){
   const mesh=new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color:colorHex, side:THREE.DoubleSide, fog:false }));
   mesh.renderOrder = -1; scene.add(mesh); return mesh;
 }
-mountainRing(770, 80, 210, 0x0b1b33, 26, 9271);   // far range
-mountainRing(560, 45, 120, 0x102844, 30, 4413);   // near range (lighter, in front)
+const mtnFar  = new THREE.Color(PAL.spire).multiplyScalar(0.22);
+const mtnNear = new THREE.Color(PAL.spire).multiplyScalar(0.38);
+mountainRing(770, 80, 210, mtnFar,  26, 9271);   // far range
+mountainRing(560, 45, 120, mtnNear, 30, 4413);   // near range (lighter, in front)
 
 // low moon with a soft halo
 {
@@ -1277,6 +1372,17 @@ function act(a){
 }
 document.querySelectorAll('button[data-act]').forEach(btn =>
   btn.addEventListener('click', ()=>{ Audio.blip(); act(btn.dataset.act); }));
+
+// track select — reloads to rebuild the world from the chosen track/theme
+$('trackName').textContent = TK.name;
+$('trackBlurb').textContent = TK.blurb;
+function switchTrack(dir){
+  const n = (trackIndex + dir + TRACKS.length) % TRACKS.length;
+  try { localStorage.setItem('auroraline_track', JSON.stringify(n)); } catch(e){}
+  location.reload();
+}
+$('trackPrev').addEventListener('click', ()=>{ Audio.blip(); switchTrack(-1); });
+$('trackNext').addEventListener('click', ()=>{ Audio.blip(); switchTrack(1); });
 
 // ---- settings UI ----
 setVol.value = settings.vol;
