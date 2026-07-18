@@ -297,6 +297,13 @@ const TUNE = {
   flowMaxBonus:  8,    // + top speed (units/s) at full flow
   flowAccel:     0.25, // accel *= 1 + flow*this
 
+  // --- off-track (deep snow: cutting the infield is punished, not rewarded) ---
+  offMargin:     2,    // units past the edge before the penalty kicks in
+  offDrag:       3.4,  // heavy extra forward drag when off the surface
+  offMaxSpeed:   15,   // hard speed cap while bogged off-track
+  offRespawnDist:34,   // teleport back to the track if this far off …
+  offRespawnTime:2.8,  // … or off-track this many seconds
+
   // --- camera ---
   camDist:      12.5,
   camHeight:    5.4,
@@ -310,37 +317,47 @@ const TIER_NAMES  = ['', 'FROST', 'GLACIER', 'AURORA'];
 const TIER_COLORS = [0x7fd4ff, 0x8fe9ff, 0x86f7d6, 0xc9a6ff];
 
 // ---------------------------------------------------------------------
-// TRACKS — each is a unique spline + aurora palette + environment + ice zones.
-// This is what makes every track feel like its own place.
+// TRACKS — each is a unique spline + width + palette + environment + zones.
+// Splines are generated as radius-varying closed loops (base+amp·sin(lobes·θ))
+// so they never self-intersect (base>amp) yet each has a distinct character.
 // ---------------------------------------------------------------------
+function loopPts(base, amp, lobes, n, phase){
+  const pts=[];
+  for (let i=0;i<n;i++){ const a=i/n*Math.PI*2, r=base+amp*Math.sin(lobes*a+phase);
+    pts.push([Math.round(Math.cos(a)*r), Math.round(Math.sin(a)*r)]); }
+  return pts;
+}
 const TRACKS = [
   {
-    name: 'AURORA LAKE', blurb: 'flowing sweepers · mountain ring',
-    ctrl: [[0,132],[96,98],[137,14],[95,-80],[8,-120],[-86,-98],[-140,-10],[-100,88],[-32,122]],
-    env: 'mountains',
-    zones: [ {a:0.18,b:0.26,grip:0.72,glare:true},{a:0.37,b:0.44,grip:1.35,glare:false},
-             {a:0.55,b:0.63,grip:0.72,glare:true},{a:0.80,b:0.87,grip:1.35,glare:false} ],
+    name: 'AURORA LAKE', blurb: 'long flowing sweepers · mountains', width: 16,
+    ctrl: loopPts(235, 52, 2, 12, 0.3),         // big gentle 2-lobe circuit
+    env: 'mountains', obstacles: 'ice',
+    zones: [ {a:0.16,b:0.24,grip:0.72,glare:true},{a:0.38,b:0.46,grip:1.35,glare:false},
+             {a:0.60,b:0.68,grip:0.72,glare:true},{a:0.82,b:0.90,grip:1.35,glare:false} ],
+    currents: [{a:0.28,b:0.38},{a:0.70,b:0.80}],
     pal: { auroraA:[0.15,1.05,0.55], auroraB:[0.55,0.25,1.05], tint:0xc9a6ff,
            fog:0x0a1024, ice:0x0a1420, spire:0x3a5c80, edgeL:0x39c6ff, edgeR:0xc9a6ff, snow:0xeef6ff },
   },
   {
-    name: 'EMERALD FJORD', blurb: 'tight & twisty · frozen forest',
-    ctrl: [[0,112],[74,118],[122,66],[82,18],[128,-44],[66,-104],[-12,-82],[-58,-122],[-122,-70],[-92,8],[-120,82],[-48,96]],
-    env: 'forest',
-    zones: [ {a:0.12,b:0.20,grip:1.4,glare:false},{a:0.30,b:0.38,grip:0.68,glare:true},
-             {a:0.50,b:0.57,grip:1.4,glare:false},{a:0.68,b:0.75,grip:0.68,glare:true},
-             {a:0.86,b:0.93,grip:1.4,glare:false} ],
+    name: 'EMERALD FJORD', blurb: 'tight technical · frozen forest', width: 14,
+    ctrl: loopPts(190, 58, 5, 22, 0.4),         // 5-lobe flower = twisty & technical
+    env: 'forest', obstacles: 'log',
+    zones: [ {a:0.10,b:0.17,grip:1.4,glare:false},{a:0.28,b:0.35,grip:0.68,glare:true},
+             {a:0.46,b:0.53,grip:1.4,glare:false},{a:0.64,b:0.71,grip:0.68,glare:true},
+             {a:0.84,b:0.91,grip:1.4,glare:false} ],
+    currents: [{a:0.20,b:0.27},{a:0.56,b:0.63}],
     pal: { auroraA:[0.10,1.05,0.6], auroraB:[0.15,0.75,0.95], tint:0x7fe9d0,
            fog:0x06140f, ice:0x08201c, spire:0x2f7a6a, edgeL:0x39ffcf, edgeR:0x8fe9ff, snow:0xeafff8 },
   },
   {
-    name: 'EMBER WASTES', blurb: 'long fast lines · iceberg field',
-    ctrl: [[0,152],[112,112],[162,0],[112,-112],[0,-152],[-112,-112],[-162,0],[-112,112]],
-    env: 'icebergs',
-    zones: [ {a:0.22,b:0.32,grip:0.66,glare:true},{a:0.47,b:0.57,grip:0.66,glare:true},
-             {a:0.72,b:0.82,grip:0.66,glare:true},{a:0.90,b:0.97,grip:1.35,glare:false} ],
-    pal: { auroraA:[1.05,0.4,0.2], auroraB:[1.05,0.7,0.25], tint:0xffb27a,
-           fog:0x160a08, ice:0x1c1210, spire:0x7a4a3a, edgeL:0xff7a4f, edgeR:0xffcf7a, snow:0xfff0e2 },
+    name: 'STONE BASIN', blurb: 'wide & fast · granite boulders', width: 18,
+    ctrl: loopPts(290, 78, 3, 14, 0),           // big 3-lobe sweepers
+    env: 'rocks', obstacles: 'rock',
+    zones: [ {a:0.20,b:0.30,grip:0.7,glare:true},{a:0.46,b:0.56,grip:0.7,glare:true},
+             {a:0.72,b:0.82,grip:1.3,glare:false} ],
+    currents: [{a:0.34,b:0.44},{a:0.78,b:0.88}],
+    pal: { auroraA:[0.35,0.5,0.72], auroraB:[0.55,0.5,0.78], tint:0xbfc8dc,
+           fog:0x0b0d12, ice:0x11131a, spire:0x4a4e58, edgeL:0x9fb6d6, edgeR:0xd0d8e6, snow:0xe8ecf2 },
   },
 ];
 let trackIndex = 0;
@@ -480,7 +497,8 @@ const spires = new THREE.Group();
 {
   let seed = 1337;
   const rnd = () => { seed = (seed*16807) % 2147483647; return seed/2147483647; };
-  const place = () => { const a=rnd()*Math.PI*2, r=175+rnd()*330; return [Math.cos(a)*r, Math.sin(a)*r]; };
+  const trackR = Math.max(...TK.ctrl.map(p=>Math.hypot(p[0],p[1]))) + 35;   // ring OUTSIDE the track
+  const place = () => { const a=rnd()*Math.PI*2, r=trackR+rnd()*300; return [Math.cos(a)*r, Math.sin(a)*r]; };
 
   if (TK.env === 'forest'){
     // frozen pines — stacked cones, snow-dusted, dark teal silhouettes
@@ -507,6 +525,14 @@ const spires = new THREE.Group();
       m.rotation.set(rnd()*3, rnd()*3, rnd()*3);
       m.scale.set(1+rnd(), 0.7+rnd()*1.6, 1+rnd());
       spires.add(m);
+    }
+  } else if (TK.env === 'rocks'){
+    // granite boulders — grey, matte, faceted (no glow)
+    const rockMat = new THREE.MeshStandardMaterial({ color:0x3e424c, roughness:.95, metalness:0, flatShading:true });
+    for (let i=0;i<85;i++){
+      const m=new THREE.Mesh(new THREE.DodecahedronGeometry(3+rnd()*8, 0), rockMat); const [x,z]=place();
+      m.position.set(x, -1+rnd()*2.5, z); m.rotation.set(rnd()*3,rnd()*3,rnd()*3);
+      m.scale.set(1+rnd(), 0.6+rnd()*1.2, 1+rnd()); spires.add(m);
     }
   } else {
     // default: icy spires (mountains theme)
@@ -536,7 +562,7 @@ const streamTex = (() => {
 
 let spawn = { x:0, z:0, yaw:0 };
 const boostPads = [];
-const HALF_W = 9.5;                       // half track width (wide, for committed slides)
+const HALF_W = TK.width || 14;            // half track width (per-track, wide for the speed)
 const curve = new THREE.CatmullRomCurve3(
   TK.ctrl.map(p => new THREE.Vector3(p[0], 0, p[1])), true, 'catmullrom', 0.5);
 
@@ -1015,6 +1041,36 @@ function updateSubIce(dt){
 }
 
 // ---------------------------------------------------------------------
+// Obstacles — hazards ON the track (offset to one side, so the racing line
+// can dodge them). Hitting one bounces you off and scrubs speed + flow.
+// ---------------------------------------------------------------------
+const obstacles = [];
+{
+  const type = TK.obstacles || 'ice';
+  const make = {
+    ice:  () => ({ mesh:new THREE.Mesh(new THREE.IcosahedronGeometry(2.6,0),
+      new THREE.MeshStandardMaterial({color:0xbcd6e8,roughness:.3,metalness:.1,emissive:0x2a5a78,emissiveIntensity:.4,flatShading:true})), r:3.4, col:0xbcd6e8, y:1.4 }),
+    rock: () => ({ mesh:new THREE.Mesh(new THREE.DodecahedronGeometry(3,0),
+      new THREE.MeshStandardMaterial({color:0x4a4e58,roughness:.95,metalness:0,flatShading:true})), r:3.8, col:0x8890a0, y:1.5 }),
+    log:  () => { const g=new THREE.Group();
+      const l=new THREE.Mesh(new THREE.CylinderGeometry(1,1,8,8), new THREE.MeshStandardMaterial({color:0x3a2a1e,roughness:.95})); l.rotation.z=Math.PI/2;
+      const cap=new THREE.Mesh(new THREE.ConeGeometry(1.05,1,8), new THREE.MeshStandardMaterial({color:0x2a1e14,roughness:1})); cap.rotation.z=-Math.PI/2; cap.position.x=4; g.add(l,cap);
+      return { mesh:g, r:3.8, col:0xa08060, y:1 }; },
+  };
+  [[0.13,0.5],[0.31,-0.55],[0.52,0.5],[0.70,-0.5],[0.88,0.55]].forEach(sp => {
+    const p=curve.getPointAt(sp[0]), tn=curve.getTangentAt(sp[0]);
+    const nx=-tn.z, nz=tn.x, nl=Math.hypot(nx,nz)||1;
+    const off = sp[1]*(HALF_W-3);
+    const x=p.x+nx/nl*off, z=p.z+nz/nl*off;
+    const o=make[type]();
+    o.mesh.position.set(x, o.y, z);
+    o.mesh.rotation.y = Math.atan2(tn.x,tn.z) + (type==='log'?0:1.3);
+    scene.add(o.mesh);
+    obstacles.push({ x, z, r:o.r, col:o.col });
+  });
+}
+
+// ---------------------------------------------------------------------
 // Frost-spray particle pool (color reflects charge tier)
 // ---------------------------------------------------------------------
 const MAXP = 260;
@@ -1057,10 +1113,11 @@ const S = {
   boost:0,             // boost timer remaining
   flow:0,              // 0..1 chaining-drift meter
   surfaceGrip:1,       // grip multiplier from the ice surface under the car
+  offTrack:0,          // units past the track edge (0 = on track)
 };
 function reset(){
   Object.assign(S,{ x:spawn.x, z:spawn.z, yaw:spawn.yaw,
-    vx:0,vz:0,steer:0,drifting:false,driftDir:0,charge:0,tier:0,boost:0,flow:0,surfaceGrip:1 });
+    vx:0,vz:0,steer:0,drifting:false,driftDir:0,charge:0,tier:0,boost:0,flow:0,surfaceGrip:1,offTrack:0 });
   if (trailHist) trailHist.length = 0;
   if (typeof marks !== 'undefined') clearMarks();
 }
@@ -1124,6 +1181,13 @@ function step(dt){
   if (down) vF -= TUNE.brakeAccel*dt;
   const dragNow = TUNE.drag * (S.drifting ? TUNE.driftDragMul : 1);
   vF -= vF * dragNow * dt;
+  // off-track bog: cutting across the infield mires you in deep snow
+  const bogged = S.offTrack > TUNE.offMargin;
+  if (bogged){
+    vF -= vF * TUNE.offDrag * dt;
+    if (Math.abs(vF) > TUNE.offMaxSpeed) vF = Math.sign(vF)*TUNE.offMaxSpeed;
+    if (Math.random() < 0.6) spawnSpray(S.x, S.z, fx, fz, 0xeef6ff, 2);
+  }
   const maxF = TUNE.maxSpeed * (boosting ? TUNE.boostMaxMul : 1) + S.flow*TUNE.flowMaxBonus;
   vF = Math.max(-TUNE.reverseMax, Math.min(maxF, vF));
 
@@ -1385,7 +1449,7 @@ composer.addPass(grade);
 // =====================================================================
 let gameState = 'menu';
 const LAPS_TOTAL = 3;
-const race = { lap:0, tRace:0, tLap:0, last:0, laps:[], prevU:0, curU:0, passedHalf:false, cdT:0, cdPrev:4, running:false, sector:0, sectorStart:0 };
+const race = { lap:0, tRace:0, tLap:0, last:0, laps:[], prevU:0, curU:0, passedHalf:false, cdT:0, cdPrev:4, running:false, sector:0, sectorStart:0, offTime:0 };
 const NSEC = 3;
 
 // progress samples for nearest-point lap detection
@@ -1445,10 +1509,12 @@ function beginRacing(){
   gameState='racing'; race.running=true; race.tLap=0; race.tRace=0;
   ghost.rec.length=0; ghost.recT=0; ghost.lastSample=-1;
   race.prevU = nearestU(S.x,S.z); race.passedHalf=false;
-  race.sector=0; race.sectorStart=0;
+  race.sector=0; race.sectorStart=0; race.offTime=0;
   showScreen(null);
 }
 function showSplit(i, t, delta){
+  if (i < 0){ splitFlash.style.color='#ff9a9a'; splitFlash.textContent='OFF TRACK · RESET';
+    splitFlash.classList.remove('show'); void splitFlash.offsetWidth; splitFlash.classList.add('show'); return; }
   const col = delta===null ? '#8fe9ff' : (delta<0 ? '#86f7d6' : '#ff9a9a');
   const dtxt = delta===null ? 'SET' : (delta<0?'−':'+')+Math.abs(delta).toFixed(2);
   splitFlash.style.color = col;
@@ -1494,6 +1560,33 @@ function updateRace(dt){
   race.tRace += dt; race.tLap += dt;
   const u = nearestU(S.x,S.z); race.curU = u;
   S.surfaceGrip = surfaceGripMul(u);   // read the surface under the car
+
+  // off-track: distance from the centerline beyond the track edge
+  const cp = curve.getPointAt(u);
+  S.offTrack = Math.max(0, Math.hypot(S.x-cp.x, S.z-cp.z) - HALF_W);
+  if (S.offTrack > TUNE.offMargin){
+    race.offTime += dt;
+    if (S.offTrack > TUNE.offRespawnDist || race.offTime > TUNE.offRespawnTime){
+      const tn2 = curve.getTangentAt(u), yaw2 = Math.atan2(tn2.x, tn2.z);
+      S.x=cp.x; S.z=cp.z; S.yaw=yaw2;
+      S.vx=Math.sin(yaw2)*12; S.vz=Math.cos(yaw2)*12; S.flow=0; S.drifting=false;
+      race.offTime=0; showSplit(-1, 0, null); Audio.beep(220,0.18,0.1);
+    }
+  } else race.offTime = 0;
+
+  // obstacle collisions — bounce off + scrub speed
+  for (const o of obstacles){
+    const dx=S.x-o.x, dz=S.z-o.z, d=Math.hypot(dx,dz);
+    if (d < o.r){
+      const nx=dx/(d||1), nz=dz/(d||1);
+      S.x=o.x+nx*o.r; S.z=o.z+nz*o.r;
+      const into = S.vx*nx + S.vz*nz;
+      if (into<0){ S.vx-=into*nx*1.6; S.vz-=into*nz*1.6; }
+      S.vx*=0.45; S.vz*=0.45; S.flow*=0.5;
+      spawnSpray(S.x, S.z, nx, nz, o.col||0xeef6ff, 12); Audio.boost();
+    }
+  }
+
   if (inCurrent(u)){                    // riding an aurora current: sustained push + flow
     S.boost = Math.max(S.boost, 0.35);
     S.flow  = Math.min(1, S.flow + 0.55*dt);
