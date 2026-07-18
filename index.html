@@ -547,6 +547,90 @@ function updateTrail(){
 }
 
 // ---------------------------------------------------------------------
+// Etched drift lines — glowing frost scars left on the ice while drifting.
+// A recycled pool of quads that fade over ~9s; the mirror ice reflects them
+// and you can read your whole racing line (and compare vs the ghost).
+// ---------------------------------------------------------------------
+const MARKS = 640;
+const mkGeo = new THREE.BufferGeometry();
+const mkPos = new Float32Array(MARKS*6*3);
+const mkCol = new Float32Array(MARKS*6*3);
+mkGeo.setAttribute('position', new THREE.BufferAttribute(mkPos,3));
+mkGeo.setAttribute('color', new THREE.BufferAttribute(mkCol,3));
+const mkMesh = new THREE.Mesh(mkGeo, new THREE.MeshBasicMaterial({
+  vertexColors:true, transparent:true, opacity:0.9,
+  blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide }));
+mkMesh.frustumCulled = false; scene.add(mkMesh);
+const marks = Array.from({length:MARKS}, ()=>({ life:0, maxlife:1, x:0,z:0, ang:0, w:0.42, len:1.4, r:0,g:0,b:0 }));
+let mkHead=0, mkDropT=0;
+function clearMarks(){ for (const m of marks) m.life=0; }
+function spawnMark(x,z,ang,colorHex,bright){
+  const m=marks[mkHead]; mkHead=(mkHead+1)%MARKS;
+  m.life=m.maxlife=9; m.x=x; m.z=z; m.ang=ang;
+  const c=new THREE.Color(colorHex); m.r=c.r*bright; m.g=c.g*bright; m.b=c.b*bright;
+}
+function updateMarks(dt){
+  // drop a twin skid while drifting, colour by tier, brighter with flow
+  if (S.drifting){
+    mkDropT += dt;
+    if (mkDropT > 0.03){
+      mkDropT = 0;
+      const ang = Math.atan2(S.vx, S.vz);
+      const rx=Math.cos(S.yaw), rz=-Math.sin(S.yaw);        // car right
+      const bright = 0.6 + S.flow*1.1 + S.tier*0.14;
+      const col = TIER_COLORS[Math.max(1,S.tier)];
+      const bx = S.x - Math.sin(S.yaw)*1.7, bz = S.z - Math.cos(S.yaw)*1.7;
+      spawnMark(bx + rx*0.7, bz + rz*0.7, ang, col, bright);
+      spawnMark(bx - rx*0.7, bz - rz*0.7, ang, col, bright);
+    }
+  }
+  for (let i=0;i<MARKS;i++){
+    const m=marks[i], o=i*18;
+    if (m.life>0){
+      m.life -= dt;
+      const a = Math.max(0, Math.min(1, m.life/m.maxlife));
+      const fade = a*a;                                     // ease-out fade
+      const dx=Math.sin(m.ang), dz=Math.cos(m.ang);        // along travel
+      const nx=Math.cos(m.ang), nz=-Math.sin(m.ang);       // across
+      const hl=m.len, hw=m.w, y=0.035;
+      const V=[ m.x+dx*hl+nx*hw,y,m.z+dz*hl+nz*hw,  m.x+dx*hl-nx*hw,y,m.z+dz*hl-nz*hw,  m.x-dx*hl+nx*hw,y,m.z-dz*hl+nz*hw,
+                m.x+dx*hl-nx*hw,y,m.z+dz*hl-nz*hw,  m.x-dx*hl-nx*hw,y,m.z-dz*hl-nz*hw,  m.x-dx*hl+nx*hw,y,m.z-dz*hl+nz*hw ];
+      for (let k=0;k<6;k++){ mkPos[o+k*3]=V[k*3]; mkPos[o+k*3+1]=V[k*3+1]; mkPos[o+k*3+2]=V[k*3+2];
+        mkCol[o+k*3]=m.r*fade; mkCol[o+k*3+1]=m.g*fade; mkCol[o+k*3+2]=m.b*fade; }
+    } else {
+      for (let k=0;k<6;k++){ mkPos[o+k*3+1]=-999; mkCol[o+k*3]=mkCol[o+k*3+1]=mkCol[o+k*3+2]=0; }
+    }
+  }
+  mkGeo.attributes.position.needsUpdate=true;
+  mkGeo.attributes.color.needsUpdate=true;
+}
+
+// ---------------------------------------------------------------------
+// Ambient snow motes — slow drifting flecks that wrap around the car for
+// parallax + atmosphere (catch the aurora light via additive blending).
+// ---------------------------------------------------------------------
+const MOTES = 360;
+const moteGeo = new THREE.BufferGeometry();
+const motePos = new Float32Array(MOTES*3);
+for (let i=0;i<MOTES;i++){ motePos[i*3]=(Math.random()-.5)*180; motePos[i*3+1]=Math.random()*42; motePos[i*3+2]=(Math.random()-.5)*180; }
+moteGeo.setAttribute('position', new THREE.BufferAttribute(motePos,3));
+const moteMesh = new THREE.Points(moteGeo, new THREE.PointsMaterial({
+  color:0xbfe6ff, size:0.33, transparent:true, opacity:0.38, blending:THREE.AdditiveBlending, depthWrite:false }));
+moteMesh.frustumCulled = false; scene.add(moteMesh);
+function updateMotes(dt){
+  const w = performance.now()*0.0003;
+  for (let i=0;i<MOTES;i++){
+    motePos[i*3+1] -= (2 + (i%5))*dt;                 // fall
+    motePos[i*3]   += Math.sin(w+i)*0.03;             // gentle sideways drift
+    if (motePos[i*3+1] < 0) motePos[i*3+1] = 42;
+    let dx = motePos[i*3]-S.x, dz = motePos[i*3+2]-S.z;   // keep within ±90 of the car
+    if (dx> 90) motePos[i*3]-=180; else if (dx<-90) motePos[i*3]+=180;
+    if (dz> 90) motePos[i*3+2]-=180; else if (dz<-90) motePos[i*3+2]+=180;
+  }
+  moteGeo.attributes.position.needsUpdate = true;
+}
+
+// ---------------------------------------------------------------------
 // Frost-spray particle pool (color reflects charge tier)
 // ---------------------------------------------------------------------
 const MAXP = 260;
@@ -593,6 +677,7 @@ function reset(){
   Object.assign(S,{ x:spawn.x, z:spawn.z, yaw:spawn.yaw,
     vx:0,vz:0,steer:0,drifting:false,driftDir:0,charge:0,tier:0,boost:0,flow:0 });
   if (trailHist) trailHist.length = 0;
+  if (typeof marks !== 'undefined') clearMarks();
 }
 
 // ---------------------------------------------------------------------
@@ -808,6 +893,8 @@ function syncVisuals(dt, info){
   surge = Math.max(0, surge - dt*1.6);
   su.uSurge.value = surge;
   updateTrail();
+  updateMarks(dt);
+  updateMotes(dt);
 
   // HUD
   const kmh = Math.round(info.speed * 3.0); // arbitrary display scale
@@ -1129,6 +1216,7 @@ addEventListener('resize', () => {
 // ---------------------------------------------------------------------
 window.__aurora = { TUNE, S, reset, scene, camera, step, keys, renderer, composer, bloom, skyMat,
   race, ghost, act, nearestU, curve, startRace, beginRacing, updateRace, updateState,
+  updateMarks, marks,
   get state(){ return gameState; }, get bestLap(){ return bestLap; }, get bestGhost(){ return bestGhost; }, Audio,
   // deterministic headless sim for testing: run N fixed-dt steps with a key held
   sim(setKeys, seconds, dt=1/60){
