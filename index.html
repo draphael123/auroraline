@@ -67,6 +67,19 @@
   #ghostDelta.behind { color:#ff9a9a; text-shadow:0 0 12px rgba(255,154,154,.5); }
   #hint { position:absolute; bottom:22px; left:26px; font-size:12px; opacity:.6; letter-spacing:1px; }
 
+  /* ---- flow gauge (left vertical bar) ---- */
+  #flow { position:absolute; left:30px; top:50%; transform:translateY(-50%);
+    width:11px; height:210px; border-radius:7px; background:rgba(255,255,255,.06);
+    box-shadow:inset 0 0 0 1px rgba(140,220,255,.15); overflow:hidden; }
+  #flowFill { position:absolute; left:0; right:0; bottom:0; height:0%; border-radius:7px;
+    background:#39c6ff; transition:height .08s linear; }
+  #flowCap { position:absolute; left:24px; top:calc(50% + 116px); font-size:10px;
+    letter-spacing:3px; opacity:.5; }
+  #flowState { position:absolute; left:52px; top:50%; transform:translateY(-50%);
+    writing-mode:vertical-rl; text-orientation:mixed; font-size:13px; font-weight:700;
+    letter-spacing:5px; color:#c9a6ff; opacity:0; text-shadow:0 0 14px rgba(201,166,255,.6);
+    transition:opacity .1s; }
+
   /* ---- overlay screens ---- */
   #overlay { position:fixed; inset:0; z-index:10; pointer-events:none; }
   .screen { pointer-events:auto; position:absolute; inset:0; display:flex; flex-direction:column;
@@ -119,6 +132,9 @@
   </div>
   <div id="tierLabel"></div>
   <div id="charge"><div id="chargeFill"></div></div>
+  <div id="flow"><div id="flowFill"></div></div>
+  <div id="flowCap">FLOW</div>
+  <div id="flowState">◈ IN FLOW ◈</div>
   <div id="speedWrap"><div id="speed">0</div><div id="speedUnit">KM / H</div></div>
   <div id="hint"><kbd id="hK_up">W</kbd> throttle · <kbd id="hK_drift">Space</kbd> drift · <kbd>Esc</kbd> pause · <kbd>R</kbd> restart</div>
 </div>
@@ -223,6 +239,16 @@ const TUNE = {
   boostMaxMul:  1.55,  // top speed multiplier during boost
   boostAccelMul:1.9,
 
+  // --- flow (chaining reward that feeds the aurora) ---
+  flowBuild:     0.28, // /s built while drifting (tier 0)
+  flowTierBuild: 0.12, // extra /s per drift tier
+  flowDecay:     0.12, // /s bleed when not drifting but still moving
+  flowDecayLow:  0.35, // /s bleed when nearly stopped
+  flowReleaseBonus: 0.05, // +flow per tier on a drift release
+  flowState:     0.55, // threshold for "IN FLOW"
+  flowMaxBonus:  8,    // + top speed (units/s) at full flow
+  flowAccel:     0.25, // accel *= 1 + flow*this
+
   // --- camera ---
   camDist:      12.5,
   camHeight:    5.4,
@@ -274,10 +300,11 @@ camera.position.set(0, 8, 16);
 // Animated aurora sky: flowing northern-light curtains + stars on a dome.
 const skyMat = new THREE.ShaderMaterial({
   side: THREE.BackSide, depthWrite: false,
-  uniforms: { t: { value: 0 } },
+  uniforms: { t: { value: 0 }, uFlow: { value: 0 }, uSurge: { value: 0 },
+              uTint: { value: new THREE.Color(0xc9a6ff) } },
   vertexShader: `varying vec3 vP; void main(){ vP=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);} `,
   fragmentShader: `
-    varying vec3 vP; uniform float t;
+    varying vec3 vP; uniform float t; uniform float uFlow; uniform float uSurge; uniform vec3 uTint;
     float hash(vec3 p){ p=fract(p*0.3183099+0.1); p*=17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
     void main(){
       vec3 dir = normalize(vP);
@@ -291,19 +318,27 @@ const skyMat = new THREE.ShaderMaterial({
         float s = hash(floor(dir*190.0));
         col += vec3(smoothstep(0.9955,1.0,s)) * smoothstep(0.05,0.35,el) * 0.9;
       }
-      // aurora curtains (two drifting bands with vertical striations)
+      // aurora curtains — the striations shimmer FASTER and a third curtain fades
+      // in as flow rises, so good driving visibly energises the sky.
+      float shimmer = t * (1.0 + uFlow*0.8);
       float band = 0.0;
-      for(int i=0;i<2;i++){
+      for(int i=0;i<3;i++){
         float fi = float(i);
-        float center = 0.34 + 0.14*fi + 0.11*sin(az*(2.0+fi) + t*(0.22+0.08*fi));
-        float width  = 0.17 - 0.05*fi;
+        float center = 0.34 + 0.13*fi + 0.11*sin(az*(2.0+fi) + shimmer*(0.22+0.08*fi));
+        float width  = 0.17 - 0.035*fi;
         float q = (el-center)/width;
         float v = exp(-q*q);
-        float striate = 0.55 + 0.45*sin(az*55.0 + t*0.6 + fi*12.0);
-        band += max(v,0.0) * striate * (1.0-0.35*fi);
+        float striate = 0.55 + 0.45*sin(az*55.0 + shimmer*0.6 + fi*12.0);
+        float w = 1.0 - 0.3*fi;
+        if(i==2) w *= uFlow;            // third curtain only appears in flow
+        band += max(v,0.0) * striate * w;
       }
-      vec3 auroraCol = mix(vec3(0.15,1.05,0.55), vec3(0.55,0.25,1.05), 0.5+0.5*sin(az*1.4 + t*0.13));
-      col += auroraCol * max(band,0.0) * 1.05;   // HDR (>1) so it blooms
+      vec3 baseA = mix(vec3(0.15,1.05,0.55), vec3(0.55,0.25,1.05), 0.5+0.5*sin(az*1.4 + t*0.13));
+      vec3 auroraCol = mix(baseA, uTint, uFlow*0.7);            // colour drifts toward tint with flow
+      float bright = 1.05 * (1.0 + uFlow*1.05 + uSurge*1.1);    // much brighter with flow + surge pulse
+      col += auroraCol * max(band,0.0) * bright;                // HDR (>1) so it blooms
+      // low horizon glow that swells with flow — the whole sky lifts, not just the bands
+      col += auroraCol * smoothstep(0.5,0.02,abs(el-0.12)) * uFlow * 0.10;
       gl_FragColor = vec4(col,1.0);
     }`
 });
@@ -495,7 +530,7 @@ function updateTrail(){
   if (trailHist.length > TRAILN) trailHist.pop();
   const speed = Math.hypot(S.vx, S.vz);
   const col = new THREE.Color(S.boost>0 ? 0xffcf7a : (S.drifting ? TIER_COLORS[Math.max(1,S.tier)] : 0x39c6ff))
-              .multiplyScalar(1.7);
+              .multiplyScalar(1.7 + S.flow*1.4);
   for (let i=0;i<TRAILN;i++){
     const h  = trailHist[Math.min(i, trailHist.length-1)] || {x:S.x,z:S.z};
     const hn = trailHist[Math.min(i+1, trailHist.length-1)] || h;
@@ -552,10 +587,11 @@ const S = {
   drifting:false, driftDir:0,
   charge:0, tier:0,
   boost:0,             // boost timer remaining
+  flow:0,              // 0..1 chaining-drift meter
 };
 function reset(){
   Object.assign(S,{ x:spawn.x, z:spawn.z, yaw:spawn.yaw,
-    vx:0,vz:0,steer:0,drifting:false,driftDir:0,charge:0,tier:0,boost:0 });
+    vx:0,vz:0,steer:0,drifting:false,driftDir:0,charge:0,tier:0,boost:0,flow:0 });
   if (trailHist) trailHist.length = 0;
 }
 
@@ -588,6 +624,8 @@ const elSpeed = document.getElementById('speed');
 const elCharge = document.getElementById('charge');
 const elChargeFill = document.getElementById('chargeFill');
 const elTier = document.getElementById('tierLabel');
+const elFlowFill = document.getElementById('flowFill');
+const elFlowState = document.getElementById('flowState');
 
 // ---------------------------------------------------------------------
 // Sim step
@@ -611,12 +649,12 @@ function step(dt){
 
   // --- throttle / brake ---
   const boosting = S.boost > 0;
-  const accel = TUNE.accel * (boosting ? TUNE.boostAccelMul : 1);
+  const accel = TUNE.accel * (boosting ? TUNE.boostAccelMul : 1) * (1 + S.flow*TUNE.flowAccel);
   if (up)   vF += accel*dt;
   if (down) vF -= TUNE.brakeAccel*dt;
   const dragNow = TUNE.drag * (S.drifting ? TUNE.driftDragMul : 1);
   vF -= vF * dragNow * dt;
-  const maxF = TUNE.maxSpeed * (boosting ? TUNE.boostMaxMul : 1);
+  const maxF = TUNE.maxSpeed * (boosting ? TUNE.boostMaxMul : 1) + S.flow*TUNE.flowMaxBonus;
   vF = Math.max(-TUNE.reverseMax, Math.min(maxF, vF));
 
   // --- steering input easing ---
@@ -673,6 +711,11 @@ function step(dt){
     }
   }
 
+  // --- flow: continuous reward for LINKED drifting; feeds the aurora ---
+  if (S.drifting) S.flow += (TUNE.flowBuild + S.tier*TUNE.flowTierBuild)*dt;
+  else            S.flow -= (speed < 12 ? TUNE.flowDecayLow : TUNE.flowDecay)*dt;
+  S.flow = Math.max(0, Math.min(1, S.flow));
+
   // --- recompose velocity with OLD basis (momentum keeps old heading) ---
   S.vx = fx*vF + rx*vL;
   S.vz = fz*vF + rz*vL;
@@ -698,6 +741,8 @@ function releaseDrift(vF){
     spawnSpray(S.x - fx*1.5, S.z - fz*1.5, fx, fz, TIER_COLORS[t], 40);
     flashTier(t);
     Audio.boost();
+    S.flow = Math.min(1, S.flow + TUNE.flowReleaseBonus*t);
+    surge = Math.min(1.6, surge + 0.45 + t*0.3);   // transient sky pulse
   }
   S.drifting=false; S.charge=0; S.tier=0;
   return vF;
@@ -707,7 +752,11 @@ function releaseDrift(vF){
 // Visual sync
 // ---------------------------------------------------------------------
 let tierFlash = 0;
+let surge = 0;          // transient aurora pulse on drift release
+let flowWasOn = false;  // edge-detect entering flow state
 function flashTier(t){ tierFlash = 1; }
+const _fA = new THREE.Color(0x39c6ff), _fB = new THREE.Color(0xc9a6ff), _fC = new THREE.Color();
+function flowHex(f){ _fC.copy(_fA).lerp(_fB, f); return '#'+_fC.getHexString(); }
 
 function syncVisuals(dt, info){
   car.position.set(S.x, 0, S.z);
@@ -720,7 +769,7 @@ function syncVisuals(dt, info){
   const glow = car.userData.glow;
   const gc = new THREE.Color(S.drifting ? TIER_COLORS[Math.max(1,S.tier)] : (S.boost>0?0xffe08a:0x39c6ff));
   glow.material.color.lerp(gc, 0.3);
-  glow.material.opacity = 0.3 + (S.drifting?0.25:0) + (S.boost>0?0.3:0);
+  glow.material.opacity = 0.3 + (S.drifting?0.25:0) + (S.boost>0?0.3:0) + S.flow*0.25;
 
   // camera: chase behind heading, lerp, look slightly ahead
   const fx = Math.sin(S.yaw), fz = Math.cos(S.yaw);
@@ -752,8 +801,12 @@ function syncVisuals(dt, info){
   pGeo.attributes.position.needsUpdate = true;
   pGeo.attributes.color.needsUpdate = true;
 
-  // aurora drift + light trail
-  skyMat.uniforms.t.value += dt;
+  // aurora drift + flow feed (smoothed) + decaying surge pulse
+  const su = skyMat.uniforms;
+  su.t.value += dt;
+  su.uFlow.value += (S.flow - su.uFlow.value) * Math.min(1, 3*dt);
+  surge = Math.max(0, surge - dt*1.6);
+  su.uSurge.value = surge;
   updateTrail();
 
   // HUD
@@ -769,6 +822,15 @@ function syncVisuals(dt, info){
   } else {
     elCharge.style.opacity = 0;
   }
+  // flow meter
+  const fcol = flowHex(S.flow);
+  elFlowFill.style.height = (S.flow*100).toFixed(1)+'%';
+  elFlowFill.style.background = fcol;
+  elFlowFill.style.boxShadow = `0 0 ${(6+S.flow*16).toFixed(0)}px ${fcol}`;
+  const inFlow = S.flow > TUNE.flowState;
+  elFlowState.style.opacity = inFlow ? (0.55 + 0.45*Math.sin(performance.now()*0.006)) : 0;
+  if (inFlow && !flowWasOn) Audio.flowUp();
+  flowWasOn = inFlow;
   if (tierFlash > 0){
     tierFlash -= dt*1.5;
     elTier.style.opacity = Math.max(0, tierFlash);
@@ -1015,7 +1077,11 @@ const Audio = (()=>{
     o.frequency.setValueAtTime(180,t); o.frequency.exponentialRampToValueAtTime(620,t+0.25);
     g.gain.setValueAtTime(0.13,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.3); o.connect(g); g.connect(master); o.start(t); o.stop(t+0.32); }
   function finish(){ chime(true); }
-  return { init, setVolume, tick, beep, blip, chime, boost, finish };
+  function flowUp(){ if(!ctx) return; [660,880,1100].forEach((f,i)=>{ const o=ctx.createOscillator(); o.type='sine'; o.frequency.value=f;
+    const g=ctx.createGain(); const t=ctx.currentTime+i*0.05; g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(0.07,t+0.03); g.gain.exponentialRampToValueAtTime(0.001,t+0.4);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t+0.42); }); }
+  return { init, setVolume, tick, beep, blip, chime, boost, finish, flowUp };
 })();
 
 // ---- initialise the shell ----
