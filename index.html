@@ -150,6 +150,7 @@
       <button data-act="settings">SETTINGS</button>
     </div>
     <p class="fine">A/D steer · W throttle · hold Space to drift, release to boost · ride gold pads</p>
+    <p class="fine">chain drifts to build FLOW · blue ice = slick, white snow = grip</p>
   </section>
 
   <section id="countdown" class="screen hidden"><div id="cdNum">3</div></section>
@@ -398,6 +399,19 @@ const curve = new THREE.CatmullRomCurve3([
   [0,132],[96,98],[137,14],[95,-80],[8,-120],[-86,-98],[-140,-10],[-100,88],[-32,122]
 ].map(p => new THREE.Vector3(p[0], 0, p[1])), true, 'catmullrom', 0.5);
 
+// surface-read zones: glare-ice (grip<1, slides wider) vs snow (grip>1, bites).
+// a,b are curve params [0,1]. Reading the surface is part of the driving.
+const surfaceZones = [
+  { a:0.18, b:0.26, grip:0.72, glare:true  },   // slick entry
+  { a:0.37, b:0.44, grip:1.35, glare:false },   // snow through a bend
+  { a:0.55, b:0.63, grip:0.72, glare:true  },   // slick sweeper
+  { a:0.80, b:0.87, grip:1.35, glare:false },   // snow bite
+];
+function surfaceGripMul(u){
+  for (const z of surfaceZones){ if (u>=z.a && u<=z.b) return z.grip; }
+  return 1;
+}
+
 {
   const NS = 520;
   const pts = curve.getSpacedPoints(NS);   // NS+1 points, evenly spaced, closed
@@ -426,6 +440,19 @@ const curve = new THREE.CatmullRomCurve3([
   };
   edgeTube(left,  0x39c6ff);
   edgeTube(right, 0xc9a6ff);
+
+  // surface-zone patches laid over the track (glare = glossy blue, snow = matte white)
+  surfaceZones.forEach(z => {
+    const i0=Math.floor(z.a*NS), i1=Math.floor(z.b*NS);
+    const V=[], I=[];
+    for (let i=i0;i<=i1;i++){ const L=left[i], R=right[i]; V.push(L.x,0.045,L.z, R.x,0.045,R.z); }
+    for (let i=0;i<(i1-i0);i++){ const aa=i*2; I.push(aa,aa+1,aa+2, aa+1,aa+3,aa+2); }
+    const g=new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(V,3)); g.setIndex(I);
+    const mat = z.glare
+      ? new THREE.MeshBasicMaterial({ color: neon(0x2aa8ff,1.25), transparent:true, opacity:0.30, blending:THREE.AdditiveBlending, depthWrite:false })
+      : new THREE.MeshBasicMaterial({ color: 0xdce8f5, transparent:true, opacity:0.5, depthWrite:false });
+    scene.add(new THREE.Mesh(g, mat));
+  });
 
   // start / finish
   const sp = pts[0], sp2 = pts[1];
@@ -672,10 +699,11 @@ const S = {
   charge:0, tier:0,
   boost:0,             // boost timer remaining
   flow:0,              // 0..1 chaining-drift meter
+  surfaceGrip:1,       // grip multiplier from the ice surface under the car
 };
 function reset(){
   Object.assign(S,{ x:spawn.x, z:spawn.z, yaw:spawn.yaw,
-    vx:0,vz:0,steer:0,drifting:false,driftDir:0,charge:0,tier:0,boost:0,flow:0 });
+    vx:0,vz:0,steer:0,drifting:false,driftDir:0,charge:0,tier:0,boost:0,flow:0,surfaceGrip:1 });
   if (trailHist) trailHist.length = 0;
   if (typeof marks !== 'undefined') clearMarks();
 }
@@ -780,6 +808,7 @@ function step(dt){
   // --- lateral grip (THE ICE) ---
   let grip = S.drifting ? TUNE.gripDrift : TUNE.gripNormal;
   if (boosting) grip = Math.max(grip, TUNE.gripBoost);
+  grip *= S.surfaceGrip;              // glare-ice <1 (slides wider), snow >1 (bites)
   vL -= vL * grip * dt;
 
   // --- charge accumulation ---
@@ -1032,6 +1061,7 @@ function finishRace(){
 function updateRace(dt){
   race.tRace += dt; race.tLap += dt;
   const u = nearestU(S.x,S.z); race.curU = u;
+  S.surfaceGrip = surfaceGripMul(u);   // read the surface under the car
   if (u>0.5 && u<0.95) race.passedHalf = true;
   if (race.passedHalf && race.prevU>0.8 && u<0.2){ race.passedHalf=false; completeLap(); }
   race.prevU = u;
