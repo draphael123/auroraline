@@ -90,7 +90,17 @@
   .screen.hidden { display:none; }
   .screen h1 { font-size:64px; letter-spacing:12px; font-weight:800; margin-left:12px;
     background:linear-gradient(90deg,#8fe9ff,#c9a6ff); -webkit-background-clip:text; background-clip:text;
-    color:transparent; filter:drop-shadow(0 0 34px rgba(140,220,255,.35)); }
+    color:transparent; animation:titleGlow 4.5s ease-in-out infinite; }
+  @keyframes titleGlow {
+    0%,100% { filter:drop-shadow(0 0 26px rgba(120,210,255,.3)); }
+    50%     { filter:drop-shadow(0 0 48px rgba(180,150,255,.55)); } }
+  .introCard { display:grid; grid-template-columns:1fr 1fr; gap:14px 24px; max-width:640px; margin:8px 0; }
+  .ic { text-align:left; background:rgba(10,20,36,.42); border:1px solid rgba(140,220,255,.14);
+    border-radius:12px; padding:13px 17px; }
+  .ic b { display:block; color:#8fe9ff; letter-spacing:3px; font-size:13px; margin-bottom:5px; }
+  .ic span { font-size:12px; opacity:.72; line-height:1.5; }
+  .ic kbd { font-size:11px; }
+  @media (max-width:560px){ .introCard { grid-template-columns:1fr; } }
   .screen h2 { font-size:38px; letter-spacing:9px; font-weight:700; color:#dff0ff; margin-left:9px; }
   .tag { letter-spacing:4px; opacity:.7; text-transform:uppercase; font-size:13px; }
   .btns { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; margin-top:6px; }
@@ -110,6 +120,8 @@
   #cdNum { font-size:150px; font-weight:800; color:#eaffff; filter:drop-shadow(0 0 46px rgba(140,220,255,.6)); }
   #finishStats { font-size:16px; line-height:2; letter-spacing:1px; }
   #finishStats .rec { color:#86f7d6; font-weight:700; }
+  .medalBadge { font-size:24px; font-weight:800; letter-spacing:4px; margin-bottom:10px;
+    text-shadow:0 0 18px currentColor; }
   #finishStats b { color:#8fe9ff; font-variant-numeric:tabular-nums; }
   .setRow { display:flex; align-items:center; gap:16px; width:340px; justify-content:space-between;
     font-size:14px; letter-spacing:1px; }
@@ -164,6 +176,18 @@
     <p class="fine">chain drifts to build FLOW · blue ice = slick, white snow = grip</p>
   </section>
 
+  <section id="intro" class="screen hidden">
+    <h1>AURORALINE</h1>
+    <p class="tag">a meditative night-ice drift racer</p>
+    <div class="introCard">
+      <div class="ic"><b>DRIFT THE ICE</b><span>you're always sliding — hold <kbd>Space</kbd> while turning, release to boost</span></div>
+      <div class="ic"><b>CHAIN FOR FLOW</b><span>linked drifts fill the FLOW gauge and set the whole sky alight</span></div>
+      <div class="ic"><b>READ THE SURFACE</b><span>blue ice is slick · white snow grips · ride glowing aurora currents</span></div>
+      <div class="ic"><b>EARN MEDALS</b><span>3 laps · chase your ghost & beat the target times across three worlds</span></div>
+    </div>
+    <div class="btns"><button data-act="begin" class="primary">BEGIN</button></div>
+  </section>
+
   <section id="countdown" class="screen hidden"><div id="cdNum">3</div></section>
 
   <section id="pause" class="screen hidden">
@@ -189,6 +213,8 @@
     <h2>SETTINGS</h2>
     <div class="setRow"><label>Master volume</label><input type="range" id="setVol" min="0" max="100" value="70"></div>
     <div class="setRow"><label>Bloom glow</label><button id="setBloom" class="toggle">ON</button></div>
+    <div class="setRow"><label>Screen FX &middot; grain, aberration</label><button id="setFx" class="toggle">ON</button></div>
+    <div class="setRow"><label>Snowfall</label><button id="setSnow" class="toggle">ON</button></div>
     <div class="rebind" id="rebind"></div>
     <p class="fine">click a key, then press the new one</p>
     <div class="btns"><button data-act="back" class="primary">BACK</button></div>
@@ -318,11 +344,12 @@ const c3 = a => new THREE.Color().setRGB(a[0], a[1], a[2]);
 // Persistent settings + records (localStorage, all guarded)
 // ---------------------------------------------------------------------
 const DEFAULT_KEYS = { throttle:'w', brake:'s', left:'a', right:'d', drift:'space' };
-const settings = { vol:70, bloom:true, keys:{ ...DEFAULT_KEYS } };
+const settings = { vol:70, bloom:true, fx:true, snow:true, keys:{ ...DEFAULT_KEYS } };
 let bestLap = null, bestTotal = null, bestGhost = null;
 try {
   const s = JSON.parse(localStorage.getItem('auroraline_settings')||'null');
   if (s){ settings.vol = s.vol ?? 70; settings.bloom = s.bloom ?? true;
+    settings.fx = s.fx ?? true; settings.snow = s.snow ?? true;
     settings.keys = { ...DEFAULT_KEYS, ...(s.keys||{}) }; }
 } catch(e){}
 const BEST_KEY = 'auroraline_best_' + trackIndex;
@@ -487,6 +514,16 @@ scene.add(spires);
 // TRACK — hand-crafted signature lake loop (M2)
 //   closed spline · glowing neon lane edges · start/finish gate · boost pads
 // ---------------------------------------------------------------------
+// scrolling stripe texture for aurora currents (flowing light-stream)
+const streamTex = (() => {
+  const c = document.createElement('canvas'); c.width = 8; c.height = 64;
+  const g = c.getContext('2d'); g.clearRect(0,0,8,64);
+  for (let y=0;y<64;y+=16){ const grd=g.createLinearGradient(0,y,0,y+16);
+    grd.addColorStop(0,'rgba(255,255,255,0)'); grd.addColorStop(0.5,'rgba(255,255,255,1)'); grd.addColorStop(1,'rgba(255,255,255,0)');
+    g.fillStyle=grd; g.fillRect(0,y,8,16); }
+  const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; return t;
+})();
+
 let spawn = { x:0, z:0, yaw:0 };
 const boostPads = [];
 const HALF_W = 9.5;                       // half track width (wide, for committed slides)
@@ -499,6 +536,19 @@ function surfaceGripMul(u){
   for (const z of surfaceZones){ if (u>=z.a && u<=z.b) return z.grip; }
   return 1;
 }
+
+// aurora currents — flowing light-streams over the track that boost + build flow.
+const currents = TK.currents || [{a:0.24,b:0.34},{a:0.60,b:0.70}];
+function inCurrent(u){ for (const c of currents){ if (u>=c.a && u<=c.b) return true; } return false; }
+
+// medals — target times auto-derived from spline length so they scale per track.
+const trackLen = curve.getLength();
+const MEDAL_T = { gold: 3*trackLen/47, silver: 3*trackLen/40, bronze: 3*trackLen/32 };
+const MEDAL_NAMES  = ['—','BRONZE','SILVER','GOLD'];
+const MEDAL_COLORS = ['#7d8896','#cd7f32','#cdd6e4','#ffd15c'];
+function medalFor(total){ return total<=MEDAL_T.gold?3 : total<=MEDAL_T.silver?2 : total<=MEDAL_T.bronze?1 : 0; }
+let bestMedal = 0;
+try { bestMedal = JSON.parse(localStorage.getItem('auroraline_medal_'+trackIndex)||'0'); } catch(e){}
 
 {
   const NS = 520;
@@ -571,6 +621,21 @@ function surfaceGripMul(u){
     const pad = new THREE.Mesh(g, mat);
     pad.position.set(p.x, 0.07, p.z); pad.rotation.y = yaw; scene.add(pad);
     boostPads.push({ x:p.x, z:p.z, mat, cool:0 });
+  });
+
+  // aurora currents — flowing light-stream ribbons over the track (scroll in updateMotes)
+  currents.forEach(cz => {
+    const i0=Math.floor(cz.a*NS), i1=Math.floor(cz.b*NS);
+    const V=[], UV=[], I=[]; const span=Math.max(1,i1-i0);
+    for (let i=i0;i<=i1;i++){ const L=left[i], R=right[i]; const v=(i-i0)*0.13;
+      V.push(L.x,0.11,L.z, R.x,0.11,R.z); UV.push(0,v, 1,v); }
+    for (let i=0;i<span;i++){ const aa=i*2; I.push(aa,aa+1,aa+2, aa+1,aa+3,aa+2); }
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(V,3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(UV,2));
+    g.setIndex(I);
+    scene.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map:streamTex, color:neon(PAL.edgeL,1.25),
+      transparent:true, opacity:0.32, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide })));
   });
 }
 
@@ -796,6 +861,7 @@ sparkMesh.frustumCulled = false; scene.add(sparkMesh);
 
 function updateMotes(dt){
   const w = performance.now()*0.0003;
+  streamTex.offset.y -= dt*0.9;   // flow the aurora currents
   // snow
   for (let i=0;i<MOTES;i++){
     motePos[i*3+1] -= moteVel[i]*dt;
@@ -860,6 +926,39 @@ mountainRing(560, 45, 120, mtnNear, 30, 4413);   // near range (lighter, in fron
 }
 
 // ---------------------------------------------------------------------
+// Sub-ice presence — glowing fissures + a slow leviathan shadow gliding
+// beneath the surface. Subtle & slow (meditative, not a jump-scare).
+// ---------------------------------------------------------------------
+const fissures = [];
+{
+  let s=555; const rnd=()=>{ s=(s*16807)%2147483647; return s/2147483647; };
+  const fcol = new THREE.Color(PAL.tint);
+  for (let i=0;i<9;i++){
+    const g=new THREE.PlaneGeometry(0.4, 8+rnd()*22); g.rotateX(-Math.PI/2);
+    const mesh=new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color:fcol, transparent:true, opacity:0,
+      blending:THREE.AdditiveBlending, depthWrite:false }));
+    const a=rnd()*Math.PI*2, r=40+rnd()*260;
+    mesh.position.set(Math.cos(a)*r, 0.03, Math.sin(a)*r);
+    mesh.rotation.y = rnd()*Math.PI; mesh.userData.ph = rnd()*Math.PI*2;
+    scene.add(mesh); fissures.push(mesh);
+  }
+}
+const leviathan = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12),
+  new THREE.MeshBasicMaterial({ color:0x03060d, transparent:true, opacity:0.5, depthWrite:false }));
+leviathan.scale.set(4, 0.6, 13); scene.add(leviathan);
+const leviGlow = new THREE.Mesh(new THREE.PlaneGeometry(36, 12),
+  new THREE.MeshBasicMaterial({ map:glowTex, color:new THREE.Color(PAL.tint), transparent:true, opacity:0.13,
+    blending:THREE.AdditiveBlending, depthWrite:false }));
+leviGlow.rotation.x = -Math.PI/2; scene.add(leviGlow);
+function updateSubIce(dt){
+  const t = performance.now()*0.001;
+  for (const f of fissures) f.material.opacity = 0.12 + 0.12*Math.sin(t*0.6 + f.userData.ph);
+  const lr=195, la=t*0.045, lx=Math.cos(la)*lr, lz=Math.sin(la)*lr;
+  leviathan.position.set(lx, 0.05, lz); leviathan.rotation.y = -la + Math.PI/2;
+  leviGlow.position.set(lx, 0.04, lz); leviGlow.rotation.z = -la;
+}
+
+// ---------------------------------------------------------------------
 // Frost-spray particle pool (color reflects charge tier)
 // ---------------------------------------------------------------------
 const MAXP = 260;
@@ -921,7 +1020,7 @@ addEventListener('keydown', e => {
   keys[k]=true;
   if (k===' ') { keys['space']=true; e.preventDefault(); }
   // global controls, dispatched by game state
-  if (k==='enter'){ if(gameState==='menu') act('start'); else if(gameState==='finished') act('restart'); }
+  if (k==='enter'){ if(gameState==='intro') act('begin'); else if(gameState==='menu') act('start'); else if(gameState==='finished') act('restart'); }
   else if (k==='escape'){ if(gameState==='racing') act('pause'); else if(gameState==='paused') act('resume'); else if(gameState==='settings') act('back'); }
   else if (k==='p'){ if(gameState==='racing') act('pause'); else if(gameState==='paused') act('resume'); }
   else if (k==='r'){ if(gameState==='racing'||gameState==='paused'||gameState==='finished') act('restart'); }
@@ -1132,6 +1231,7 @@ function syncVisuals(dt, info){
   updateTrail();
   updateMarks(dt);
   updateMotes(dt);
+  updateSubIce(dt);
 
   // HUD
   const kmh = Math.round(info.speed * 3.0); // arbitrary display scale
@@ -1189,18 +1289,19 @@ const GradeShader = {
     tDiffuse:   { value: null },
     uTime:      { value: 0 },
     uBoost:     { value: 0 },     // 0..1 → stronger aberration + edge darkening on boost
+    uFxOn:      { value: 1 },     // toggle grain + chromatic aberration
     uRes:       { value: new THREE.Vector2(innerWidth, innerHeight) },
   },
   vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);} `,
   fragmentShader: `
-    varying vec2 vUv; uniform sampler2D tDiffuse; uniform float uTime; uniform float uBoost; uniform vec2 uRes;
+    varying vec2 vUv; uniform sampler2D tDiffuse; uniform float uTime; uniform float uBoost; uniform float uFxOn; uniform vec2 uRes;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
     void main(){
       vec2 uv = vUv, c = uv-0.5;
       float r2 = dot(c,c);
       vec2 dir = normalize(c + 1e-6);
       // chromatic aberration — grows toward edges, spikes on boost
-      float ca = (0.0012 + r2*0.0055) * (1.0 + uBoost*3.5);
+      float ca = (0.0012 + r2*0.0055) * (1.0 + uBoost*3.5) * uFxOn;
       vec3 col;
       col.r = texture2D(tDiffuse, uv - dir*ca).r;
       col.g = texture2D(tDiffuse, uv).g;
@@ -1216,7 +1317,7 @@ const GradeShader = {
       col *= 1.0 - uBoost*0.18*smoothstep(0.05,0.6,r2);       // extra edge darken on boost
       col += vec3(0.11,0.16,0.24) * smoothstep(0.62,1.35,r2*2.6) * 0.5;  // frosty cold rim
       // fine film grain
-      col += (hash(uv*uRes + fract(uTime)*911.0) - 0.5) * 0.045;
+      col += (hash(uv*uRes + fract(uTime)*911.0) - 0.5) * 0.045 * uFxOn;
       gl_FragColor = vec4(col, 1.0);
     }`
 };
@@ -1269,9 +1370,10 @@ function showScreen(id){
 // ---- state transitions ----
 function toMenu(){
   gameState='menu'; race.running=false; ghostMesh.visible=false; reset();
+  const medalTxt = bestMedal>0 ? `<span style="color:${MEDAL_COLORS[bestMedal]}">◆ ${MEDAL_NAMES[bestMedal]}</span>&nbsp;·&nbsp;` : '';
   menuBest.innerHTML = bestLap
-    ? `BEST LAP <b>${fmt(bestLap)}</b>&nbsp;&nbsp;·&nbsp;&nbsp;BEST RUN <b>${fmt(bestTotal)}</b>`
-    : 'no records yet — set the first one';
+    ? `${medalTxt}BEST LAP <b>${fmt(bestLap)}</b>&nbsp;·&nbsp;BEST RUN <b>${fmt(bestTotal)}</b>`
+    : `gold under <b>${fmt(MEDAL_T.gold)}</b> — no records yet`;
   showScreen('menu');
 }
 function startRace(){
@@ -1300,10 +1402,18 @@ function finishRace(){
   gameState='finished'; race.running=false; ghostMesh.visible=false;
   const total = race.tRace, best = Math.min(...race.laps);
   let totalRec=false; if (bestTotal===null || total<bestTotal){ bestTotal=total; totalRec=true; saveBest(); }
+  const medal = medalFor(total);
+  let newMedal=false;
+  if (medal>bestMedal){ bestMedal=medal; newMedal=true; try{ localStorage.setItem('auroraline_medal_'+trackIndex, JSON.stringify(bestMedal)); }catch(e){} }
+  const medalHTML = medal>0
+    ? `<div class="medalBadge" style="color:${MEDAL_COLORS[medal]}">◆ ${MEDAL_NAMES[medal]} MEDAL${newMedal?' <span class="rec">NEW!</span>':''}</div>`
+    : `<div class="medalBadge" style="color:#7d8896">just missed — beat ${fmt(MEDAL_T.bronze)} for bronze</div>`;
   finishStats.innerHTML =
+    medalHTML +
     `TOTAL <b>${fmt(total)}</b>${totalRec?' <span class="rec">NEW RECORD</span>':''}<br>` +
     `BEST LAP <b>${fmt(best)}</b><br>` +
-    `<span style="opacity:.6;font-size:13px">laps ${race.laps.map(l=>l.toFixed(2)).join(' · ')}</span>`;
+    `<span style="opacity:.55;font-size:12px">targets — G ${fmt(MEDAL_T.gold)} · S ${fmt(MEDAL_T.silver)} · B ${fmt(MEDAL_T.bronze)}</span><br>` +
+    `<span style="opacity:.55;font-size:13px">laps ${race.laps.map(l=>l.toFixed(2)).join(' · ')}</span>`;
   Audio.finish();
   showScreen('finish');
 }
@@ -1311,6 +1421,10 @@ function updateRace(dt){
   race.tRace += dt; race.tLap += dt;
   const u = nearestU(S.x,S.z); race.curU = u;
   S.surfaceGrip = surfaceGripMul(u);   // read the surface under the car
+  if (inCurrent(u)){                    // riding an aurora current: sustained push + flow
+    S.boost = Math.max(S.boost, 0.35);
+    S.flow  = Math.min(1, S.flow + 0.55*dt);
+  }
   if (u>0.5 && u<0.95) race.passedHalf = true;
   if (race.passedHalf && race.prevU>0.8 && u<0.2){ race.passedHalf=false; completeLap(); }
   race.prevU = u;
@@ -1362,7 +1476,8 @@ function updateState(dt){
 
 // ---- actions (buttons + keys) ----
 function act(a){
-  if (a==='start' || a==='restart') startRace();
+  if (a==='begin'){ try{ localStorage.setItem('auroraline_seen','1'); }catch(e){} toMenu(); }
+  else if (a==='start' || a==='restart') startRace();
   else if (a==='pause'){ gameState='paused'; showScreen('pause'); }
   else if (a==='resume'){ gameState='racing'; showScreen(null); last=performance.now(); }
   else if (a==='menu') toMenu();
@@ -1389,6 +1504,11 @@ setVol.value = settings.vol;
 setVol.addEventListener('input', ()=>{ settings.vol=+setVol.value; Audio.setVolume(); saveSettings(); });
 function refreshBloomBtn(){ setBloom.textContent = settings.bloom?'ON':'OFF'; bloom.enabled = settings.bloom; }
 setBloom.addEventListener('click', ()=>{ settings.bloom=!settings.bloom; refreshBloomBtn(); saveSettings(); Audio.blip(); });
+const setFx = $('setFx'), setSnow = $('setSnow');
+function refreshFxBtn(){ setFx.textContent = settings.fx?'ON':'OFF'; grade.uniforms.uFxOn.value = settings.fx?1:0; }
+function refreshSnowBtn(){ setSnow.textContent = settings.snow?'ON':'OFF'; moteMesh.visible = settings.snow; }
+setFx.addEventListener('click', ()=>{ settings.fx=!settings.fx; refreshFxBtn(); saveSettings(); Audio.blip(); });
+setSnow.addEventListener('click', ()=>{ settings.snow=!settings.snow; refreshSnowBtn(); saveSettings(); Audio.blip(); });
 const ACTIONS = [['throttle','Throttle'],['brake','Brake'],['left','Steer left'],['right','Steer right'],['drift','Drift']];
 function buildRebind(){
   rebindEl.innerHTML='';
@@ -1462,8 +1582,12 @@ const Audio = (()=>{
 })();
 
 // ---- initialise the shell ----
-buildRebind(); refreshBloomBtn(); refreshHints();
-toMenu();
+buildRebind(); refreshBloomBtn(); refreshFxBtn(); refreshSnowBtn(); refreshHints();
+(function startup(){
+  let seen=false; try{ seen = localStorage.getItem('auroraline_seen')==='1'; }catch(e){}
+  if (seen){ toMenu(); }
+  else { gameState='intro'; reset(); showScreen('intro'); }
+})();
 
 let last = performance.now();
 let ticking = false;
